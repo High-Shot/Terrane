@@ -5,6 +5,13 @@ export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
 
+// Attach JWT (if present) to every request
+api.interceptors.request.use((cfg) => {
+  const token = localStorage.getItem("terrane_token");
+  if (token) cfg.headers.Authorization = `Bearer ${token}`;
+  return cfg;
+});
+
 // Anonymous client id (no auth) persisted in browser
 export function getClientId() {
   let id = localStorage.getItem("terrane_client_id");
@@ -13,4 +20,23 @@ export function getClientId() {
     localStorage.setItem("terrane_client_id", id);
   }
   return id;
+}
+
+// Upload a GPX file with progress. Returns parsed route doc.
+export async function uploadRoute(file, clientId, onProgress) {
+  const form = new FormData();
+  form.append("client_id", clientId);
+  form.append("file", file);
+  const { data } = await api.post("/routes/upload", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+    onUploadProgress: (e) => {
+      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));
+    },
+  });
+  return data;
+}
+
+export async function fetchRoute(routeId) {
+  const { data } = await api.get(`/routes/${routeId}`);
+  return data;
 }

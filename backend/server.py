@@ -1,15 +1,20 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Query, UploadFile, File, Form, Header, Depends
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Any, Dict
 import uuid
-from datetime import datetime, timezone
+import math
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone, timedelta
 import httpx
+import bcrypt
+import jwt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -17,6 +22,12 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Persistent local file storage
+UPLOAD_DIR = Path(os.environ.get('UPLOAD_DIR', str(ROOT_DIR / 'uploads')))
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_ROUTE_POINTS = 1500
 
 # PayPal config (optional -> demo mode when absent)
 PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID', '').strip()
@@ -26,6 +37,11 @@ PAYPAL_BASE = 'https://api-m.paypal.com' if PAYPAL_MODE == 'live' else 'https://
 PAYPAL_ENABLED = bool(PAYPAL_CLIENT_ID and PAYPAL_SECRET)
 
 MAP_PRICE = 249.00
+
+# Auth config
+JWT_SECRET = os.environ.get('JWT_SECRET', 'dev-secret-change-me')
+JWT_ALG = 'HS256'
+JWT_EXP_DAYS = 30
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -59,6 +75,8 @@ class Design(BaseModel):
     orientation: str = "portrait"
     elev: Optional[float] = None
     image: Optional[str] = ""
+    route_id: Optional[str] = None
+    route_color: Optional[str] = "#cd7b41"
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -74,6 +92,8 @@ class DesignCreate(BaseModel):
     orientation: str = "portrait"
     elev: Optional[float] = None
     image: Optional[str] = ""
+    route_id: Optional[str] = None
+    route_color: Optional[str] = "#cd7b41"
 
 
 class OrderCreate(BaseModel):
@@ -83,6 +103,75 @@ class OrderCreate(BaseModel):
 
 class CaptureBody(BaseModel):
     paypal_order_id: Optional[str] = None
+
+
+class UserPublic(BaseModel):
+    id: str
+    email: str
+    name: str
+    created_at: str
+
+
+class RegisterBody(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    client_id: Optional[str] = None
+
+
+class LoginBody(BaseModel):
+    email: EmailStr
+    password: str
+    client_id: Optional[str] = None
+
+
+# ----------------------------- Auth helpers -----------------------------
+def hash_pw(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_pw(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode("utf-8")[:72], hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def make_token(user_id: str) -> str:
+    payload = {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXP_DAYS)}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+
+async def get_optional_user(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except Exception:
+        return None
+    user = await db.users.find_one({"id": payload.get("sub")})
+    if user:
+        user.pop("_id", None)
+    return user
+
+
+async def require_user(user=Depends(get_optional_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Sign in required")
+    return user
+
+
+def public_user(u: dict) -> dict:
+    return {"id": u["id"], "email": u["email"], "name": u["name"], "created_at": u["created_at"]}
+
+
+async def migrate_anon(client_id: Optional[str], user_id: str):
+    """Attach a guest's anonymous designs/routes/orders to a real account."""
+    if not client_id:
+        return
+    for coll in (db.designs, db.routes, db.orders):
+        await coll.update_many({"client_id": client_id, "user_id": {"$exists": False}}, {"$set": {"user_id": user_id}})
 
 
 # ----------------------------- Helpers -----------------------------
@@ -96,6 +185,67 @@ async def paypal_token() -> str:
         )
         r.raise_for_status()
         return r.json()["access_token"]
+
+
+def _haversine_km(a, b):
+    R = 6371.0
+    lat1, lon1, lat2, lon2 = map(math.radians, [a[0], a[1], b[0], b[1]])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(h))
+
+
+def parse_gpx(raw: bytes):
+    """Parse GPX bytes -> route dict. Handles namespaced or plain GPX."""
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="Invalid GPX file")
+
+    def local(tag):
+        return tag.split('}')[-1]
+
+    pts = []
+    name = None
+    for el in root.iter():
+        t = local(el.tag)
+        if t in ("trkpt", "rtept", "wpt"):
+            try:
+                lat = float(el.attrib.get("lat"))
+                lon = float(el.attrib.get("lon"))
+                pts.append([lat, lon])
+            except (TypeError, ValueError):
+                continue
+        elif t == "name" and name is None and el.text and el.text.strip():
+            name = el.text.strip()
+
+    if not pts:
+        raise HTTPException(status_code=400, detail="No track points found in GPX")
+
+    # Downsample for transport/rendering
+    if len(pts) > MAX_ROUTE_POINTS:
+        step = math.ceil(len(pts) / MAX_ROUTE_POINTS)
+        sampled = pts[::step]
+        if sampled[-1] != pts[-1]:
+            sampled.append(pts[-1])
+    else:
+        sampled = pts
+
+    lats = [p[0] for p in pts]
+    lons = [p[1] for p in pts]
+    bounds = [[min(lats), min(lons)], [max(lats), max(lons)]]
+    center = [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
+    dist = sum(_haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+
+    return {
+        "name": name,
+        "points": sampled,
+        "point_count": len(pts),
+        "bounds": bounds,
+        "center": center,
+        "distance_km": round(dist, 2),
+        "distance_mi": round(dist * 0.621371, 2),
+    }
 
 
 # ----------------------------- Routes -----------------------------
@@ -112,6 +262,41 @@ async def config():
         "price": MAP_PRICE,
         "currency": "USD",
     }
+
+
+# ----------------------------- Auth -----------------------------
+@api_router.post("/auth/register")
+async def register(body: RegisterBody):
+    email = body.email.lower().strip()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "name": body.name.strip() or email.split("@")[0],
+        "password_hash": hash_pw(body.password),
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(user)
+    await migrate_anon(body.client_id, user["id"])
+    return {"token": make_token(user["id"]), "user": public_user(user)}
+
+
+@api_router.post("/auth/login")
+async def login(body: LoginBody):
+    email = body.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_pw(body.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    await migrate_anon(body.client_id, user["id"])
+    return {"token": make_token(user["id"]), "user": public_user(user)}
+
+
+@api_router.get("/auth/me", response_model=UserPublic)
+async def me(user=Depends(require_user)):
+    return public_user(user)
 
 
 async def _geocode_nominatim(q: str):
@@ -194,16 +379,98 @@ async def elevation(lat: float, lng: float):
     return {"elevation_m": round(elev_m, 1), "elevation_ft": round(elev_m * 3.28084)}
 
 
+# ----------------------------- Routes (GPX file storage) -----------------------------
+@api_router.post("/routes/upload")
+async def upload_route(client_id: str = Form(...), file: UploadFile = File(...), user=Depends(get_optional_user)):
+    if not file.filename.lower().endswith(".gpx"):
+        raise HTTPException(status_code=400, detail="Only .gpx files are accepted")
+
+    raw = await file.read()
+    if len(raw) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+
+    parsed = parse_gpx(raw)
+
+    route_id = str(uuid.uuid4())
+    stored_name = f"{route_id}.gpx"
+    (UPLOAD_DIR / stored_name).write_bytes(raw)
+
+    doc = {
+        "id": route_id,
+        "client_id": client_id,
+        "original_filename": file.filename,
+        "stored_filename": stored_name,
+        "size_bytes": len(raw),
+        "name": parsed["name"] or file.filename.rsplit(".", 1)[0],
+        "points": parsed["points"],
+        "point_count": parsed["point_count"],
+        "bounds": parsed["bounds"],
+        "center": parsed["center"],
+        "distance_km": parsed["distance_km"],
+        "distance_mi": parsed["distance_mi"],
+        "created_at": now_iso(),
+    }
+    if user:
+        doc["user_id"] = user["id"]
+    await db.routes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/routes/{route_id}")
+async def get_route(route_id: str):
+    doc = await db.routes.find_one({"id": route_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Route not found")
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/routes/{route_id}/download")
+async def download_route(route_id: str):
+    doc = await db.routes.find_one({"id": route_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Route not found")
+    path = UPLOAD_DIR / doc["stored_filename"]
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    return FileResponse(str(path), media_type="application/gpx+xml", filename=doc.get("original_filename", "route.gpx"))
+
+
+@api_router.delete("/routes/{route_id}")
+async def delete_route(route_id: str):
+    doc = await db.routes.find_one({"id": route_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Route not found")
+    try:
+        (UPLOAD_DIR / doc["stored_filename"]).unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning(f"could not remove file: {e}")
+    await db.routes.delete_one({"id": route_id})
+    return {"ok": True}
+
+
 @api_router.post("/designs", response_model=Design)
-async def create_design(payload: DesignCreate):
+async def create_design(payload: DesignCreate, user=Depends(get_optional_user)):
     design = Design(**payload.dict())
-    await db.designs.insert_one(design.dict())
+    doc = design.dict()
+    if user:
+        doc["user_id"] = user["id"]
+    await db.designs.insert_one(doc)
     return design
 
 
 @api_router.get("/designs", response_model=List[Design])
-async def list_designs(client_id: str = Query(...)):
-    docs = await db.designs.find({"client_id": client_id}).sort("created_at", -1).to_list(200)
+async def list_designs(client_id: Optional[str] = Query(None), user=Depends(get_optional_user)):
+    if user:
+        query = {"user_id": user["id"]}
+    elif client_id:
+        query = {"client_id": client_id}
+    else:
+        raise HTTPException(status_code=400, detail="client_id required for guests")
+    docs = await db.designs.find(query).sort("created_at", -1).to_list(200)
     return [Design(**{k: v for k, v in d.items() if k != "_id"}) for d in docs]
 
 
@@ -216,7 +483,7 @@ async def delete_design(design_id: str):
 
 
 @api_router.post("/orders")
-async def create_order(payload: OrderCreate):
+async def create_order(payload: OrderCreate, user=Depends(get_optional_user)):
     order_id = str(uuid.uuid4())
     base = {
         "id": order_id,
@@ -228,6 +495,8 @@ async def create_order(payload: OrderCreate):
         "proof_requested": True,
         "created_at": now_iso(),
     }
+    if user:
+        base["user_id"] = user["id"]
 
     if not PAYPAL_ENABLED:
         base["demo"] = True

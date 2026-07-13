@@ -175,6 +175,48 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "TESTED: Full demo flow working correctly. POST /api/orders creates order with demo=true, paypal_order_id=null, status=pending, amount=249, currency=USD. POST /api/orders/{id}/capture returns status=captured with demo=true. GET /api/orders/{id} retrieves order with correct captured status and captured_at timestamp. GET non-existent order correctly returns 404. Demo mode functioning as expected without PayPal keys."
+  - task: "JWT Authentication (register/login/me)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "POST /api/auth/register {email,password,name,client_id} returns token+user. POST /api/auth/login {email,password,client_id} returns token+user. GET /api/auth/me with Bearer token returns user. Validation: duplicate email->409, short password->400, wrong password->401, no token->401."
+        -working: true
+        -agent: "testing"
+        -comment: "TESTED: All auth endpoints working correctly. ✓ Register returns token+user with correct fields (id,email,name,created_at). ✓ Duplicate email correctly returns 409. ✓ Short password (<6 chars) correctly returns 400. ✓ Login with correct credentials returns token+user. ✓ Wrong password correctly returns 401. ✓ Non-existent email correctly returns 401. ✓ GET /auth/me with Bearer token returns user. ✓ Without token returns 401. ✓ Garbage token returns 401. JWT authentication fully functional."
+  - task: "User-scoped designs and migration"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Guest designs with client_id can be created without auth. When user registers/logs in with same client_id, designs are migrated to user_id. GET /api/designs with Bearer token returns user's designs (including migrated). GET with client_id (no token) returns guest-scoped designs only."
+        -working: true
+        -agent: "testing"
+        -comment: "TESTED: User-scoped designs and migration working perfectly. ✓ Guest can create design without auth using client_id. ✓ Registering new user with same client_id triggers migration. ✓ GET /api/designs with Bearer token includes migrated guest design. ✓ Creating design with Bearer token associates it to user. ✓ User's design list includes both migrated and new designs. ✓ GET with different client_id (no token) correctly isolated - does not return user's designs. Migration logic and user-scoping fully functional."
+  - task: "GPX routes storage (upload/get/delete)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "POST /api/routes/upload (multipart: client_id + .gpx file) parses GPX and returns route with id,name,points,point_count,bounds,center,distance_km,distance_mi. Non-GPX file->400. GET /api/routes/{id} returns route. DELETE /api/routes/{id} removes route and file."
+        -working: true
+        -agent: "testing"
+        -comment: "TESTED: GPX routes storage fully functional. ✓ Upload valid GPX file returns complete route object with id,name,points (array),point_count,bounds,center,distance_km,distance_mi. ✓ Non-GPX file correctly rejected with 400. ✓ GET /api/routes/{id} retrieves route with all fields. ✓ DELETE /api/routes/{id} returns {ok:true} and removes route. ✓ GET deleted route correctly returns 404. File parsing, storage, and CRUD operations all working correctly."
 
 frontend:
   - task: "Studio + Home integration (map, geocode, designs, order)"
@@ -192,16 +234,14 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 1
+  test_sequence: 2
   run_ui: false
 
 test_plan:
   current_focus:
-    - "GET /api/geocode?q= via Nominatim"
-    - "GET /api/elevation?lat=&lng= via Open-Meteo"
-    - "Designs CRUD (POST/GET/DELETE /api/designs)"
-    - "Orders + PayPal capture (demo mode)"
-    - "GET /api/config returns paypal_enabled/price"
+    - "JWT Authentication (register/login/me)"
+    - "User-scoped designs and migration"
+    - "GPX routes storage (upload/get/delete)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -209,5 +249,9 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: "Backend implemented for Terrane rebuild. Please test all /api endpoints: config, geocode (external Nominatim - allow for occasional slowness/rate limits), elevation (Open-Meteo), designs CRUD round trip with a test client_id, and orders demo flow (create -> capture -> get). PayPal keys not set so orders run in demo mode (demo=true, capture returns status 'captured')."
+    -agent: "main"
+    -message: "NEW: Added email/password JWT auth + GPX file storage. Please test: (1) POST /api/auth/register {email,password,name,client_id} returns token+user; duplicate email -> 409; short password (<6) -> 400. (2) POST /api/auth/login returns token+user; wrong password -> 401. (3) GET /api/auth/me with Bearer token returns user; without token -> 401. (4) Migration: create a design as guest with client_id=X, then register/login with client_id=X, then GET /api/designs WITH Bearer token should include that design (user-scoped). (5) GET /api/designs with Bearer token returns only that user's designs; with only client_id (no token) returns guest designs. (6) POST /api/routes/upload (multipart: client_id + .gpx file) parses and returns points/bounds/center/distance; non-gpx -> 400; GET /api/routes/{id}; DELETE /api/routes/{id}. Use a small valid GPX with a few trkpt elements."
     -agent: "testing"
     -message: "Backend testing complete. ALL 5 BACKEND ENDPOINTS WORKING CORRECTLY: ✓ Config endpoint returns correct data. ✓ Geocode endpoint correctly handles external Nominatim service (currently rate-limited but backend error handling is proper). ✓ Elevation endpoint returns correct data from Open-Meteo. ✓ Designs CRUD full round trip successful (create/list/delete/404). ✓ Orders demo flow complete (create/capture/get/404). No backend issues found. All endpoints tested with comprehensive test suite in /app/backend_test.py."
+    -agent: "testing"
+    -message: "JWT AUTH & USER-SCOPED DATA TESTING COMPLETE: ALL 20 TESTS PASSED ✅ Comprehensive testing of new auth and GPX features completed successfully. (1) JWT Authentication: All endpoints working - register with validation (409 for duplicate, 400 for short password), login with error handling (401 for wrong password/non-existent email), /auth/me with token validation. (2) User-scoped designs: Migration working perfectly - guest designs created with client_id are successfully migrated to user account on register/login. User's design list correctly includes both migrated and new designs. Guest client_id isolation verified. (3) GPX routes: Upload parses valid GPX and returns complete route data (points, bounds, center, distance). Non-GPX files correctly rejected with 400. GET/DELETE operations working with proper 404 handling. All backend features fully functional. Test suite: /app/backend_test.py"

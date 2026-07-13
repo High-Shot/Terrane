@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { NAV_LINKS } from '../mock/mock';
+import { useAuth } from '../lib/AuthContext';
+import AuthModal from './AuthModal';
 
 const Logo = ({ onClick }) => (
   <Link to="/" onClick={onClick} className="flex items-center gap-3 group">
@@ -19,6 +21,8 @@ const Logo = ({ onClick }) => (
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -65,7 +69,17 @@ export default function Navbar() {
           )}
         </nav>
 
-        <div className="hidden lg:block">
+        <div className="hidden lg:flex items-center gap-4">
+          {user ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-full bg-[var(--rust)] text-[#1a0f06] font-display font-bold text-xs flex items-center justify-center">{user.name.charAt(0).toUpperCase()}</span>
+                <button onClick={logout} className="mono-label text-[var(--slate)] hover:text-[var(--cream)] transition-colors">Sign out</button>
+              </div>
+            </>
+          ) : (
+            <button onClick={() => setAuthOpen(true)} className="mono-label text-[var(--slate)] hover:text-[var(--cream)] transition-colors">Sign in</button>
+          )}
           <Link to="/studio"><button className="btn-rust">Open the studio</button></Link>
         </div>
 
@@ -83,9 +97,15 @@ export default function Navbar() {
               <Link key={l.label} to={l.href} onClick={() => setOpen(false)} className="mono-label text-[var(--slate)]">{l.label}</Link>
             )
           )}
+          {user ? (
+            <button onClick={() => { logout(); setOpen(false); }} className="mono-label text-[var(--slate)] text-left">Sign out ({user.name})</button>
+          ) : (
+            <button onClick={() => { setAuthOpen(true); setOpen(false); }} className="mono-label text-[var(--slate)] text-left">Sign in</button>
+          )}
           <Link to="/studio" onClick={() => setOpen(false)}><button className="btn-rust w-full">Open the studio</button></Link>
         </div>
       )}
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </header>
   );
 }

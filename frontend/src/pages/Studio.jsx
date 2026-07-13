@@ -5,7 +5,9 @@ import { toast } from 'sonner';
 import { MAP_STYLES } from '../mock/mock';
 import MapPreview from '../components/MapPreview';
 import OrderModal from '../components/OrderModal';
-import { api, getClientId } from '../lib/api';
+import AuthModal from '../components/AuthModal';
+import { api, getClientId, uploadRoute, fetchRoute } from '../lib/api';
+import { useAuth } from '../lib/AuthContext';
 
 const fmtLat = (lat) => `${Math.abs(lat).toFixed(4)} ${lat >= 0 ? 'N' : 'S'}`;
 const fmtLng = (lng) => `${Math.abs(lng).toFixed(4)} ${lng >= 0 ? 'E' : 'W'}`;
@@ -51,6 +53,8 @@ const SectionTitle = ({ n, title }) => (
 export default function Studio() {
   const clientId = getClientId();
   const mapRef = useRef(null);
+  const { user, logout } = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
 
   const [tab, setTab] = useState('search');
   const [searchQ, setSearchQ] = useState('');
@@ -60,6 +64,10 @@ export default function Studio() {
   const [latIn, setLatIn] = useState('');
   const [lngIn, setLngIn] = useState('');
   const [routeColor, setRouteColor] = useState('#cd7b41');
+  const [route, setRoute] = useState(null); // { id, name, points, bounds, center, distance_mi, distance_km, point_count }
+  const [uploading, setUploading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
+  const fileInputRef = useRef(null);
 
   const [mode, setMode] = useState('relief');
   const [style, setStyle] = useState('harbor');
@@ -88,7 +96,7 @@ export default function Studio() {
   const loadDesigns = useCallback(() => {
     api.get('/designs', { params: { client_id: clientId } }).then((r) => setDesigns(r.data)).catch(() => {});
   }, [clientId]);
-  useEffect(() => { loadDesigns(); }, [loadDesigns]);
+  useEffect(() => { loadDesigns(); }, [loadDesigns, user]);
 
   // Fetch elevation whenever place coordinates change
   const fetchElevation = useCallback(async (lat, lng) => {
@@ -143,9 +151,32 @@ export default function Studio() {
     toast.success('Moved to coordinates');
   };
 
+  const handleGpx = async (fileList) => {
+    const file = fileList && fileList[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.gpx')) { toast.error('Please choose a .gpx file'); return; }
+    setUploading(true);
+    setUploadPct(0);
+    try {
+      const data = await uploadRoute(file, clientId, setUploadPct);
+      setRoute(data);
+      const [clat, clng] = data.center;
+      setPlace((p) => ({ ...p, name: data.name, sub: 'GPX route', lat: clat, lng: clng }));
+      setLegendName(data.name);
+      toast.success('Route loaded', { description: `${data.distance_mi} mi · ${data.point_count} points. Every switchback you earned.` });
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not read that GPX file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const clearRoute = () => { setRoute(null); if (fileInputRef.current) fileInputRef.current.value = ''; };
+
   const currentDesign = () => ({
     client_id: clientId, name: legendName || place.name, sub: legendLine2 || place.sub,
     lat: place.lat, lng: place.lng, mode, style, size, orientation, elev: place.elev, image: activeStyle.img,
+    route_id: route?.id || null, route_color: routeColor,
   });
 
   const handleSave = async () => {
@@ -171,7 +202,17 @@ export default function Studio() {
           <Logo />
           <div className="flex items-center gap-3">
             <button onClick={() => { setShowDesigns(true); loadDesigns(); }} className="btn-ghost !py-2 !px-4">My designs {designs.length ? `(${designs.length})` : ''}</button>
-            <button onClick={() => toast('Accounts are disabled in this build')} className="btn-ghost !py-2 !px-4">Sign in</button>
+            {user ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 border border-[var(--line-strong)] rounded-sm px-3 py-1.5">
+                  <span className="w-6 h-6 rounded-full bg-[var(--rust)] text-[#1a0f06] font-display font-bold text-xs flex items-center justify-center">{user.name.charAt(0).toUpperCase()}</span>
+                  <span className="text-[var(--cream)] text-sm max-w-[120px] truncate">{user.name}</span>
+                </div>
+                <button onClick={() => { logout(); toast('Signed out'); }} className="btn-ghost !py-2 !px-4">Sign out</button>
+              </div>
+            ) : (
+              <button onClick={() => setAuthOpen(true)} className="btn-ghost !py-2 !px-4">Sign in</button>
+            )}
           </div>
         </div>
       </header>
@@ -241,13 +282,35 @@ export default function Studio() {
 
             {tab === 'gpx' && (
               <div className="mt-5">
-                <label className="block border border-dashed border-[var(--line-strong)] rounded-sm p-8 text-center cursor-pointer hover:border-[var(--rust)] transition-colors">
-                  <Upload size={22} className="mx-auto text-[var(--rust)]" />
-                  <div className="text-[var(--cream-dim)] text-sm mt-3">Drop a GPX file here, or click to choose one</div>
-                  <div className="mono-label text-[var(--slate-dim)] mt-2">Strava · Garmin · Komoot · Apple Fitness</div>
-                  <input type="file" accept=".gpx" className="hidden" onChange={() => toast.success('Route loaded', { description: 'Every switchback you earned.' })} />
-                </label>
-                <p className="text-[var(--slate)] text-xs mt-3">Your route is drawn at true position and inlaid into the print. Every switchback you earned.</p>
+                {!route ? (
+                  <>
+                    <label className="block border border-dashed border-[var(--line-strong)] rounded-sm p-8 text-center cursor-pointer hover:border-[var(--rust)] transition-colors"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); handleGpx(e.dataTransfer.files); }}>
+                      {uploading ? <Loader2 size={22} className="mx-auto text-[var(--rust)] animate-spin" /> : <Upload size={22} className="mx-auto text-[var(--rust)]" />}
+                      <div className="text-[var(--cream-dim)] text-sm mt-3">{uploading ? 'Reading your route…' : 'Drop a GPX file here, or click to choose one'}</div>
+                      <div className="mono-label text-[var(--slate-dim)] mt-2">Strava · Garmin · Komoot · Apple Fitness</div>
+                      <input ref={fileInputRef} type="file" accept=".gpx" className="hidden" onChange={(e) => handleGpx(e.target.files)} />
+                    </label>
+                    {uploading && (
+                      <div className="mt-3 h-1.5 bg-[var(--bg-0)] rounded-full overflow-hidden">
+                        <div className="h-full bg-[var(--rust)] transition-all duration-200" style={{ width: `${uploadPct}%` }} />
+                      </div>
+                    )}
+                    <p className="text-[var(--slate)] text-xs mt-3">Your route is drawn at true position and inlaid into the print. Every switchback you earned.</p>
+                  </>
+                ) : (
+                  <div className="rounded-sm border border-[var(--line-strong)] bg-[var(--bg-0)] p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-display font-bold text-[var(--cream)]">{route.name}</div>
+                        <div className="mono-label text-[var(--rust)] mt-1 !text-[0.6rem]">{route.distance_mi} MI · {route.point_count} POINTS</div>
+                      </div>
+                      <button onClick={clearRoute} className="text-[var(--slate)] hover:text-[var(--rust)]" title="Remove route"><Trash2 size={16} /></button>
+                    </div>
+                    <div className="mono-label text-[var(--slate-dim)] mt-3 !text-[0.58rem] truncate">{route.original_filename}</div>
+                  </div>
+                )}
                 <div className="mt-4 flex items-center gap-3">
                   <span className="text-[var(--cream-dim)] text-sm">Route color</span>
                   <input type="color" value={routeColor} onChange={(e) => setRouteColor(e.target.value)} className="w-9 h-9 rounded-sm bg-transparent border border-[var(--line-strong)] cursor-pointer" />
@@ -311,7 +374,8 @@ export default function Studio() {
           </div>
 
           <div className={`mx-auto relative rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-2)] shadow-[0_40px_100px_-40px_rgba(0,0,0,0.9)] ${isPortrait ? 'max-w-[520px] aspect-[3/4]' : 'max-w-[720px] aspect-[4/3]'}`}>
-            <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef} />
+            <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef}
+              routePoints={route?.points} routeColor={routeColor} routeBounds={route?.bounds} />
             <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent 45%, rgba(11,28,41,0.92))' }} />
 
             <div className="absolute top-4 right-4 z-[400] flex flex-col rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-0)]/80">
@@ -390,7 +454,7 @@ export default function Studio() {
                         <span>{d.orientation}</span>
                         <span>{d.style}</span>
                       </div>
-                      <button onClick={() => { applyPlace({ name: d.name, sub: d.sub, lat: d.lat, lng: d.lng }); setMode(d.mode); setStyle(d.style); setSize(d.size); setOrientation(d.orientation); setLegendName(d.name); setLegendLine2(d.sub || ''); setShowDesigns(false); }}
+                      <button onClick={async () => { applyPlace({ name: d.name, sub: d.sub, lat: d.lat, lng: d.lng }); setMode(d.mode); setStyle(d.style); setSize(d.size); setOrientation(d.orientation); setLegendName(d.name); setLegendLine2(d.sub || ''); if (d.route_color) setRouteColor(d.route_color); if (d.route_id) { try { const r = await fetchRoute(d.route_id); setRoute(r); setTab('gpx'); } catch { setRoute(null); } } else { setRoute(null); } setShowDesigns(false); }}
                         className="btn-ghost w-full mt-4 !py-2">Load in studio</button>
                     </div>
                   </div>
@@ -402,6 +466,7 @@ export default function Studio() {
       )}
 
       <OrderModal open={orderOpen} onClose={() => { setOrderOpen(false); }} design={currentDesign()} clientId={clientId} config={config} />
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onSuccess={() => loadDesigns()} />
     </div>
   );
 }
