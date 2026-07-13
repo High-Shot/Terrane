@@ -114,33 +114,65 @@ async def config():
     }
 
 
-@api_router.get("/geocode")
-async def geocode(q: str = Query(..., min_length=1)):
-    try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get(
-                "https://nominatim.openstreetmap.org/search",
-                params={"q": q, "format": "jsonv2", "limit": 6, "addressdetails": 1},
-                headers={"User-Agent": "TerraneMaps/1.0 (studio geocoder)"},
-            )
-            r.raise_for_status()
-            data = r.json()
-    except Exception as e:
-        logger.error(f"geocode error: {e}")
-        raise HTTPException(status_code=502, detail="Geocoding service unavailable")
-
+async def _geocode_nominatim(q: str):
+    async with httpx.AsyncClient(timeout=12) as c:
+        r = await c.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": q, "format": "jsonv2", "limit": 6, "addressdetails": 1},
+            headers={"User-Agent": "TerraneMaps/1.0 (studio geocoder; contact@terranemaps.com)"},
+        )
+        r.raise_for_status()
+        data = r.json()
     results = []
     for item in data:
-        display = item.get("display_name", "")
-        parts = [p.strip() for p in display.split(",")]
-        name = parts[0] if parts else display
-        if len(parts) > 1:
-            name = ", ".join(parts[:2])
+        parts = [p.strip() for p in item.get("display_name", "").split(",")]
+        name = ", ".join(parts[:2]) if len(parts) > 1 else (parts[0] if parts else item.get("display_name", ""))
         sub = ", ".join(parts[2:4]) if len(parts) > 2 else item.get("type", "")
         try:
             results.append(GeoResult(name=name, sub=sub, lat=float(item["lat"]), lng=float(item["lon"])).dict())
         except Exception:
             continue
+    return results
+
+
+async def _geocode_photon(q: str):
+    async with httpx.AsyncClient(timeout=12) as c:
+        r = await c.get(
+            "https://photon.komoot.io/api/",
+            params={"q": q, "limit": 6},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; TerraneMaps/1.0)"},
+        )
+        r.raise_for_status()
+        data = r.json()
+    results = []
+    for f in data.get("features", []):
+        p = f.get("properties", {})
+        coords = f.get("geometry", {}).get("coordinates", [None, None])
+        lng, lat = coords[0], coords[1]
+        if lat is None or lng is None:
+            continue
+        name = p.get("name") or p.get("city") or p.get("street") or "Location"
+        sub_parts = [x for x in [p.get("city") if p.get("city") != name else None, p.get("state"), p.get("country")] if x]
+        try:
+            results.append(GeoResult(name=name, sub=", ".join(sub_parts), lat=float(lat), lng=float(lng)).dict())
+        except Exception:
+            continue
+    return results
+
+
+@api_router.get("/geocode")
+async def geocode(q: str = Query(..., min_length=1)):
+    # Try Nominatim first, fall back to Photon (both key-less) for resilience against rate limits
+    results = []
+    try:
+        results = await _geocode_nominatim(q)
+    except Exception as e:
+        logger.warning(f"nominatim failed: {e}")
+    if not results:
+        try:
+            results = await _geocode_photon(q)
+        except Exception as e:
+            logger.error(f"photon failed: {e}")
     return {"results": results}
 
 
