@@ -221,7 +221,7 @@ backend:
 frontend:
   - task: "Studio + Home integration (map, geocode, designs, order)"
     implemented: true
-    working: false
+    working: true
     file: "frontend/src/pages/Studio.jsx"
     stuck_count: 0
     priority: "high"
@@ -233,18 +233,23 @@ frontend:
         -working: false
         -agent: "testing"
         -comment: "CRITICAL BUG FOUND: Search suggestions dropdown (z-index 20) does not close after selecting a suggestion and blocks ALL UI interactions below it - cannot click quick chips (Fairhope/Lake Tahoe/Moab), cannot click Find it button, cannot click header elements. The dropdown intercepts all pointer events. Root cause: Studio.jsx lines 242-250 - suggestions dropdown has no click-outside handler and stays open permanently after appearing. WORKING FEATURES TESTED: ✅ Auth (register/login/logout) works perfectly. ✅ Search autocomplete triggers and displays suggestions correctly. ✅ Clicking a suggestion updates the map and legend (tested Lake Tahoe - map recentered, elevation shows 1047 FT). ✅ Map preview renders with 3D relief. ✅ User avatar and name display correctly after login. UNTESTED (blocked by dropdown bug): Frame controls (terrain/streets toggle, style swatches, size/orientation), GPX upload, Coordinates tab, Save/My Designs, Order modal. External: Map tiles from ArcGIS fail to load (ERR_ABORTED) but this is external service issue, not app bug."
+        -working: true
+        -agent: "main"
+        -comment: "DROPDOWN BUG FIX APPLIED: Added skipSearchRef to suppress autocomplete refetch after selection (line 114), added click-outside handler (lines 125-132), and updated applyPlace to close dropdown (line 138). The fix ensures dropdown closes after selecting a suggestion and when clicking outside the search box."
+        -working: true
+        -agent: "testing"
+        -comment: "COMPREHENSIVE RETEST COMPLETE - ALL FEATURES WORKING ✅ PRIMARY BUG FIX VERIFIED: (1) Dropdown closes after selecting Lake Tahoe suggestion and stays closed - map recenters, elevation displays 6224 FT. (2) Previously blocked elements now clickable - Moab quick chip, Find it button, My designs button all work. (3) Click-outside fix verified - typing 'Fairhope' opens dropdown, clicking outside closes it. ✅ FRAME CONTROLS: All working - City streets/Terrain relief toggle, style swatches (Harbor/Chart/Basalt), size toggle (12×16/16×20), orientation toggle (Portrait/Landscape), FORMAT info updates correctly. ✅ COORDINATES TAB: Working - entered lat 36.1069, lng -112.1129, clicked 'Go to coordinates', map recentered to Grand Canyon area with toast 'Moved to coordinates'. ✅ GPX UPLOAD: Full flow working - uploaded test_route.gpx (5 points), route summary displays '0.71 MI · 5 POINTS', orange polyline renders on map, route color picker changes line color to red, trash icon clears route and shows upload area again. ✅ SAVE + MY DESIGNS: Complete flow working - saved 'QA Map' design, opened My designs drawer, design appears in list, 'Load in studio' button works and closes drawer, reopened drawer, delete (trash) icon removes design, drawer closes by clicking backdrop. ✅ ORDER MODAL: Working - clicked 'Order · $249' button, modal opens with title 'Order this map', price $249.00 displayed, PayPal iframe renders (live integration), X button closes modal. External: Map tiles from ArcGIS fail to load (ERR_ABORTED) - this is external service issue, not app bug. NO APPLICATION ERRORS FOUND. All core functionality tested and working correctly."
 
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
   current_focus:
     - "Studio + Home integration (map, geocode, designs, order)"
-  stuck_tasks:
-    - "Studio + Home integration (map, geocode, designs, order)"
+  stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
@@ -259,3 +264,7 @@ agent_communication:
     -message: "JWT AUTH & USER-SCOPED DATA TESTING COMPLETE: ALL 20 TESTS PASSED ✅ Comprehensive testing of new auth and GPX features completed successfully. (1) JWT Authentication: All endpoints working - register with validation (409 for duplicate, 400 for short password), login with error handling (401 for wrong password/non-existent email), /auth/me with token validation. (2) User-scoped designs: Migration working perfectly - guest designs created with client_id are successfully migrated to user account on register/login. User's design list correctly includes both migrated and new designs. Guest client_id isolation verified. (3) GPX routes: Upload parses valid GPX and returns complete route data (points, bounds, center, distance). Non-GPX files correctly rejected with 400. GET/DELETE operations working with proper 404 handling. All backend features fully functional. Test suite: /app/backend_test.py"
     -agent: "testing"
     -message: "FRONTEND TESTING - CRITICAL BUG BLOCKING ALL FLOWS: ❌ Search suggestions dropdown does not close after selection and permanently blocks all UI interactions (z-index overlay issue in Studio.jsx lines 242-250). Dropdown intercepts pointer events for quick chips, Find it button, and even sticky header. ✅ WORKING: Auth (register/login/logout), search autocomplete triggers correctly, clicking suggestion updates map/legend (Lake Tahoe tested - elevation 1047 FT displayed), map preview renders, user avatar displays. ⚠️ UNTESTED (blocked by dropdown): Frame controls, GPX upload, Coordinates tab, Save/My Designs, Order modal. FIX NEEDED: Add click-outside handler to close suggestions dropdown (setSuggests([])) or reduce z-index to not block other elements."
+    -agent: "main"
+    -message: "DROPDOWN BUG FIX APPLIED: Added skipSearchRef to suppress autocomplete refetch after programmatic selection, added click-outside handler using mousedown event listener, and updated applyPlace function to close dropdown. The fix ensures dropdown closes after selecting a suggestion and when clicking outside the search box. Ready for retest."
+    -agent: "testing"
+    -message: "COMPREHENSIVE RETEST COMPLETE - ALL FEATURES WORKING ✅ PRIMARY BUG FIX VERIFIED: Dropdown closes after selection and stays closed, previously blocked elements now clickable, click-outside handler working. ✅ ALL FLOWS TESTED: Frame controls (terrain/streets, styles, size, orientation), Coordinates tab (lat/lng entry and navigation), GPX upload (file upload, route display, color picker, delete), Save + My Designs (save, load, delete), Order modal (opens with $249 price and PayPal iframe). External map tiles from ArcGIS fail to load (ERR_ABORTED) - this is external service issue, not app bug. NO APPLICATION ERRORS. All core functionality working correctly. Terrane app is fully functional and ready for production."

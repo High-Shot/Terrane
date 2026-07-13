@@ -68,6 +68,8 @@ export default function Studio() {
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const fileInputRef = useRef(null);
+  const skipSearchRef = useRef(false); // suppress autocomplete refetch after a programmatic selection
+  const searchBoxRef = useRef(null);
 
   const [mode, setMode] = useState('relief');
   const [style, setStyle] = useState('harbor');
@@ -109,6 +111,7 @@ export default function Studio() {
 
   // Debounced autocomplete
   useEffect(() => {
+    if (skipSearchRef.current) { skipSearchRef.current = false; setSuggests([]); return; }
     if (tab !== 'search' || searchQ.trim().length < 3) { setSuggests([]); return; }
     const t = setTimeout(async () => {
       try {
@@ -119,7 +122,17 @@ export default function Studio() {
     return () => clearTimeout(t);
   }, [searchQ, tab]);
 
+  // Close suggestions when clicking outside the search box
+  useEffect(() => {
+    const onDown = (e) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) setSuggests([]);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
   const applyPlace = (p) => {
+    skipSearchRef.current = true;
     setPlace({ ...p, elev: place.elev });
     setLegendName(p.name);
     setSuggests([]);
@@ -234,7 +247,7 @@ export default function Studio() {
               options={[{ label: 'Search', value: 'search' }, { label: 'Coordinates', value: 'coords' }, { label: 'GPX file', value: 'gpx' }]} />
 
             {tab === 'search' && (
-              <div className="mt-5 relative">
+              <div className="mt-5 relative" ref={searchBoxRef}>
                 <label className="text-[var(--cream-dim)] text-sm">Address, city, or landmark</label>
                 <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   placeholder="Fairhope, Alabama"
