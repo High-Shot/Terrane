@@ -143,6 +143,16 @@ a {
   width: 100%;
 }
 
+/* Leaflet fixes: keep map below sticky header + overlays */
+.leaflet-container {
+  z-index: 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+.leaflet-pane, .leaflet-top, .leaflet-bottom { z-index: 1; }
+.terrane-dark .leaflet-tile-pane {
+  filter: brightness(0.6) saturate(0.7) contrast(1.05);
+}
+
 /* Card hover */
 .data-card {
   transition: transform 0.4s cubic-bezier(0.16,1,0.3,1), border-color 0.3s ease;

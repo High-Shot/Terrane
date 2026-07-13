@@ -1,11 +1,20 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Crosshair, Upload, Plus, Minus, Info, Save, ShoppingCart, X, Trash2, Check } from 'lucide-react';
+import { Search, Crosshair, Upload, Plus, Minus, Info, Save, ShoppingCart, X, Trash2, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { MAP_STYLES, SAMPLE_PLACES } from '../mock/mock';
+import { MAP_STYLES } from '../mock/mock';
+import MapPreview from '../components/MapPreview';
+import OrderModal from '../components/OrderModal';
+import { api, getClientId } from '../lib/api';
 
 const fmtLat = (lat) => `${Math.abs(lat).toFixed(4)} ${lat >= 0 ? 'N' : 'S'}`;
 const fmtLng = (lng) => `${Math.abs(lng).toFixed(4)} ${lng >= 0 ? 'E' : 'W'}`;
+
+const QUICK = [
+  { name: 'Fairhope, Alabama', sub: 'Eastern shore, Mobile Bay', lat: 30.5230, lng: -87.9033 },
+  { name: 'Lake Tahoe', sub: 'Sierra Nevada', lat: 39.0968, lng: -120.0324 },
+  { name: 'Moab, Utah', sub: 'Colorado Plateau', lat: 38.5733, lng: -109.5498 },
+];
 
 const Logo = () => (
   <Link to="/" className="flex items-center gap-3">
@@ -23,13 +32,8 @@ const Logo = () => (
 const Segmented = ({ options, value, onChange }) => (
   <div className="flex border border-[var(--line-strong)] rounded-sm overflow-hidden">
     {options.map((o) => (
-      <button
-        key={o.value}
-        onClick={() => onChange(o.value)}
-        className={`flex-1 py-2.5 mono-label transition-colors ${
-          value === o.value ? 'bg-[var(--rust)]/15 text-[var(--rust)] border-[var(--rust)]' : 'text-[var(--slate)] hover:text-[var(--cream)]'
-        }`}
-      >
+      <button key={o.value} onClick={() => onChange(o.value)}
+        className={`flex-1 py-2.5 mono-label transition-colors ${value === o.value ? 'bg-[var(--rust)]/15 text-[var(--rust)]' : 'text-[var(--slate)] hover:text-[var(--cream)]'}`}>
         {o.label}
       </button>
     ))}
@@ -45,14 +49,19 @@ const SectionTitle = ({ n, title }) => (
 );
 
 export default function Studio() {
+  const clientId = getClientId();
+  const mapRef = useRef(null);
+
   const [tab, setTab] = useState('search');
   const [searchQ, setSearchQ] = useState('');
-  const [place, setPlace] = useState(SAMPLE_PLACES[0]);
+  const [suggests, setSuggests] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [place, setPlace] = useState({ name: 'Fairhope, Alabama', sub: 'Eastern shore, Mobile Bay', lat: 30.5230, lng: -87.9033, elev: 141 });
   const [latIn, setLatIn] = useState('');
   const [lngIn, setLngIn] = useState('');
   const [routeColor, setRouteColor] = useState('#cd7b41');
 
-  const [mode, setMode] = useState('relief'); // relief | streets
+  const [mode, setMode] = useState('relief');
   const [style, setStyle] = useState('harbor');
   const [size, setSize] = useState('12x16');
   const [orientation, setOrientation] = useState('portrait');
@@ -60,90 +69,115 @@ export default function Studio() {
   const [legendName, setLegendName] = useState('Fairhope, Alabama');
   const [legendLine2, setLegendLine2] = useState('');
 
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const dragRef = useRef(null);
-
   const [showDesigns, setShowDesigns] = useState(false);
-  const [designs, setDesigns] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('terrane_designs') || '[]'); } catch { return []; }
-  });
+  const [designs, setDesigns] = useState([]);
+  const [config, setConfig] = useState({ paypal_enabled: false });
+  const [orderOpen, setOrderOpen] = useState(false);
 
   const activeStyle = MAP_STYLES.find((s) => s.id === style) || MAP_STYLES[0];
   const scaleRatio = size === '12x16' ? '1 : 24,000' : '1 : 19,300';
-  const formatLabel = `${size === '12x16' ? '12" \u00d7 16"' : '16" \u00d7 20"'} ${orientation === 'portrait' ? 'PORTRAIT' : 'LANDSCAPE'}`;
+  const formatLabel = `${size === '12x16' ? '12" × 16"' : '16" × 20"'} ${orientation === 'portrait' ? 'PORTRAIT' : 'LANDSCAPE'}`;
   const isPortrait = orientation === 'portrait';
 
-  const handleSearch = () => {
+  // Load config
+  useEffect(() => {
+    api.get('/config').then((r) => setConfig(r.data)).catch(() => {});
+  }, []);
+
+  // Fetch designs when drawer opens
+  const loadDesigns = useCallback(() => {
+    api.get('/designs', { params: { client_id: clientId } }).then((r) => setDesigns(r.data)).catch(() => {});
+  }, [clientId]);
+  useEffect(() => { loadDesigns(); }, [loadDesigns]);
+
+  // Fetch elevation whenever place coordinates change
+  const fetchElevation = useCallback(async (lat, lng) => {
+    try {
+      const { data } = await api.get('/elevation', { params: { lat, lng } });
+      setPlace((p) => ({ ...p, elev: data.elevation_ft }));
+    } catch { /* keep existing */ }
+  }, []);
+  useEffect(() => { fetchElevation(place.lat, place.lng); /* eslint-disable-next-line */ }, [place.lat, place.lng]);
+
+  // Debounced autocomplete
+  useEffect(() => {
+    if (tab !== 'search' || searchQ.trim().length < 3) { setSuggests([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/geocode', { params: { q: searchQ.trim() } });
+        setSuggests(data.results || []);
+      } catch { setSuggests([]); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchQ, tab]);
+
+  const applyPlace = (p) => {
+    setPlace({ ...p, elev: place.elev });
+    setLegendName(p.name);
+    setSuggests([]);
+    setSearchQ(p.name);
+  };
+
+  const handleSearch = async () => {
     if (!searchQ.trim()) { toast.error('Type a place to search'); return; }
-    const found = SAMPLE_PLACES.find((p) => p.name.toLowerCase().includes(searchQ.trim().toLowerCase()));
-    const chosen = found || { name: searchQ.trim(), sub: 'Custom location', lat: 30 + Math.random() * 15, lng: -(80 + Math.random() * 40), elev: Math.round(100 + Math.random() * 4000) };
-    setPlace(chosen);
-    setLegendName(chosen.name);
-    toast.success(`Framed ${chosen.name}`);
+    setSearching(true);
+    try {
+      const { data } = await api.get('/geocode', { params: { q: searchQ.trim() } });
+      if (data.results && data.results.length) {
+        applyPlace(data.results[0]);
+        toast.success(`Framed ${data.results[0].name}`);
+      } else {
+        toast.error('No place found — try a different search');
+      }
+    } catch {
+      toast.error('Search failed. Try again.');
+    } finally { setSearching(false); }
   };
 
   const handleCoords = () => {
     const la = parseFloat(latIn), ln = parseFloat(lngIn);
-    if (isNaN(la) || isNaN(ln)) { toast.error('Enter valid decimal degrees'); return; }
-    const chosen = { name: `${fmtLat(la)}, ${fmtLng(ln)}`, sub: 'Custom coordinates', lat: la, lng: ln, elev: Math.round(50 + Math.random() * 3000) };
-    setPlace(chosen);
+    if (isNaN(la) || isNaN(ln) || la < -90 || la > 90 || ln < -180 || ln > 180) { toast.error('Enter valid decimal degrees'); return; }
+    const chosen = { name: `${fmtLat(la)}, ${fmtLng(ln)}`, sub: 'Custom coordinates', lat: la, lng: ln };
+    setPlace({ ...chosen, elev: place.elev });
     setLegendName(chosen.name);
     toast.success('Moved to coordinates');
   };
 
-  const handleDrag = useCallback((e) => {
-    if (!dragRef.current) return;
-    const dx = e.clientX - dragRef.current.x;
-    const dy = e.clientY - dragRef.current.y;
-    setOffset({ x: dragRef.current.ox + dx, y: dragRef.current.oy + dy });
-  }, []);
-  const startDrag = (e) => {
-    dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
-    window.addEventListener('mousemove', handleDrag);
-    window.addEventListener('mouseup', endDrag);
-  };
-  const endDrag = () => {
-    dragRef.current = null;
-    window.removeEventListener('mousemove', handleDrag);
-    window.removeEventListener('mouseup', endDrag);
+  const currentDesign = () => ({
+    client_id: clientId, name: legendName || place.name, sub: legendLine2 || place.sub,
+    lat: place.lat, lng: place.lng, mode, style, size, orientation, elev: place.elev, image: activeStyle.img,
+  });
+
+  const handleSave = async () => {
+    try {
+      await api.post('/designs', currentDesign());
+      toast.success('Design saved', { description: 'Find it under My Designs.' });
+      loadDesigns();
+    } catch { toast.error('Could not save design'); }
   };
 
-  const persist = (list) => { localStorage.setItem('terrane_designs', JSON.stringify(list)); setDesigns(list); };
-
-  const handleSave = () => {
-    const design = {
-      id: Date.now(), name: legendName || place.name, sub: legendLine2 || place.sub,
-      coords: `${fmtLat(place.lat)}, ${fmtLng(place.lng)}`, mode, style, size, orientation,
-      elev: place.elev, image: activeStyle.img, savedAt: new Date().toLocaleDateString(),
-    };
-    persist([design, ...designs]);
-    toast.success('Design saved', { description: 'Find it under My Designs.' });
+  const deleteDesign = async (id) => {
+    try { await api.delete(`/designs/${id}`); setDesigns((d) => d.filter((x) => x.id !== id)); }
+    catch { toast.error('Could not delete'); }
   };
 
-  const handleOrder = () => {
-    toast.success('Added to your order \u00b7 $249', {
-      description: 'A final proof will be emailed before anything prints. (Demo \u2014 no charge.)',
-    });
-  };
-
-  const deleteDesign = (id) => { persist(designs.filter((d) => d.id !== id)); };
+  const zoomIn = () => mapRef.current && mapRef.current.zoomIn();
+  const zoomOut = () => mapRef.current && mapRef.current.zoomOut();
 
   return (
     <div className="min-h-screen bg-[var(--bg-0)]">
-      {/* Top bar */}
       <header className="sticky top-0 z-40 bg-[var(--bg-0)]/90 backdrop-blur-md border-b border-[var(--line)]">
         <div className="max-w-[1500px] mx-auto px-6 h-[64px] flex items-center justify-between">
           <Logo />
           <div className="flex items-center gap-3">
-            <button onClick={() => setShowDesigns(true)} className="btn-ghost !py-2 !px-4">My designs {designs.length ? `(${designs.length})` : ''}</button>
-            <button onClick={() => toast('Sign in is not wired up in this demo')} className="btn-ghost !py-2 !px-4">Sign in</button>
+            <button onClick={() => { setShowDesigns(true); loadDesigns(); }} className="btn-ghost !py-2 !px-4">My designs {designs.length ? `(${designs.length})` : ''}</button>
+            <button onClick={() => toast('Accounts are disabled in this build')} className="btn-ghost !py-2 !px-4">Sign in</button>
           </div>
         </div>
       </header>
 
       <div className="max-w-[1500px] mx-auto px-6 py-8 grid lg:grid-cols-[400px_1fr] gap-8">
-        {/* LEFT CONTROL PANEL */}
+        {/* LEFT PANEL */}
         <div className="space-y-8">
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
             <h1 className="font-display font-black text-[1.8rem] tracking-[-0.01em]">The Studio</h1>
@@ -155,30 +189,36 @@ export default function Studio() {
           {/* 01 PLACE */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
             <SectionTitle n="01" title="Place" />
-            <Segmented
-              value={tab}
-              onChange={setTab}
-              options={[{ label: 'Search', value: 'search' }, { label: 'Coordinates', value: 'coords' }, { label: 'GPX file', value: 'gpx' }]}
-            />
+            <Segmented value={tab} onChange={setTab}
+              options={[{ label: 'Search', value: 'search' }, { label: 'Coordinates', value: 'coords' }, { label: 'GPX file', value: 'gpx' }]} />
 
             {tab === 'search' && (
-              <div className="mt-5">
+              <div className="mt-5 relative">
                 <label className="text-[var(--cream-dim)] text-sm">Address, city, or landmark</label>
-                <input
-                  value={searchQ} onChange={(e) => setSearchQ(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   placeholder="Fairhope, Alabama"
-                  className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors"
-                />
+                  className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
+                {suggests.length > 0 && (
+                  <div className="absolute left-0 right-0 z-20 mt-1 bg-[var(--bg-1)] border border-[var(--line-strong)] rounded-sm max-h-64 overflow-y-auto shadow-xl">
+                    {suggests.map((s, i) => (
+                      <button key={i} onClick={() => applyPlace(s)} className="w-full text-left px-4 py-2.5 hover:bg-[var(--rust)]/10 border-b border-[var(--line)] last:border-0">
+                        <div className="text-[var(--cream)] text-sm">{s.name}</div>
+                        <div className="text-[var(--slate)] text-xs mt-0.5">{s.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2 mt-3">
-                  {SAMPLE_PLACES.slice(0, 3).map((p) => (
-                    <button key={p.name} onClick={() => { setSearchQ(p.name); setPlace(p); setLegendName(p.name); }}
+                  {QUICK.map((p) => (
+                    <button key={p.name} onClick={() => applyPlace(p)}
                       className="mono-label text-[var(--slate)] border border-[var(--line)] px-2.5 py-1.5 rounded-sm hover:border-[var(--rust)] hover:text-[var(--rust)] transition-colors">
                       {p.name.split(',')[0]}
                     </button>
                   ))}
                 </div>
-                <button onClick={handleSearch} className="btn-rust w-full mt-4 flex items-center justify-center gap-2"><Search size={15} /> Find it</button>
+                <button onClick={handleSearch} disabled={searching} className="btn-rust w-full mt-4 flex items-center justify-center gap-2">
+                  {searching ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />} Find it
+                </button>
               </div>
             )}
 
@@ -204,7 +244,7 @@ export default function Studio() {
                 <label className="block border border-dashed border-[var(--line-strong)] rounded-sm p-8 text-center cursor-pointer hover:border-[var(--rust)] transition-colors">
                   <Upload size={22} className="mx-auto text-[var(--rust)]" />
                   <div className="text-[var(--cream-dim)] text-sm mt-3">Drop a GPX file here, or click to choose one</div>
-                  <div className="mono-label text-[var(--slate-dim)] mt-2">Strava \u00b7 Garmin \u00b7 Komoot \u00b7 Apple Fitness</div>
+                  <div className="mono-label text-[var(--slate-dim)] mt-2">Strava · Garmin · Komoot · Apple Fitness</div>
                   <input type="file" accept=".gpx" className="hidden" onChange={() => toast.success('Route loaded', { description: 'Every switchback you earned.' })} />
                 </label>
                 <p className="text-[var(--slate)] text-xs mt-3">Your route is drawn at true position and inlaid into the print. Every switchback you earned.</p>
@@ -219,9 +259,7 @@ export default function Studio() {
           {/* 02 FRAME */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
             <SectionTitle n="02" title="Frame" />
-            <Segmented value={mode} onChange={setMode}
-              options={[{ label: 'Terrain relief', value: 'relief' }, { label: 'City streets', value: 'streets' }]} />
-
+            <Segmented value={mode} onChange={setMode} options={[{ label: 'Terrain relief', value: 'relief' }, { label: 'City streets', value: 'streets' }]} />
             <div className="grid grid-cols-3 gap-3 mt-4">
               {MAP_STYLES.map((s) => (
                 <button key={s.id} onClick={() => setStyle(s.id)}
@@ -234,15 +272,8 @@ export default function Studio() {
                 </button>
               ))}
             </div>
-
-            <div className="mt-4">
-              <Segmented value={size} onChange={setSize}
-                options={[{ label: '12" \u00d7 16"', value: '12x16' }, { label: '16" \u00d7 20"', value: '16x20' }]} />
-            </div>
-            <div className="mt-3">
-              <Segmented value={orientation} onChange={setOrientation}
-                options={[{ label: 'Portrait', value: 'portrait' }, { label: 'Landscape', value: 'landscape' }]} />
-            </div>
+            <div className="mt-4"><Segmented value={size} onChange={setSize} options={[{ label: '12" × 16"', value: '12x16' }, { label: '16" × 20"', value: '16x20' }]} /></div>
+            <div className="mt-3"><Segmented value={orientation} onChange={setOrientation} options={[{ label: 'Portrait', value: 'portrait' }, { label: 'Landscape', value: 'landscape' }]} /></div>
             <p className="text-[var(--slate)] text-xs mt-4">Pan and zoom the preview to set your crop. What you frame is what we build.</p>
           </div>
 
@@ -252,8 +283,7 @@ export default function Studio() {
             <label className="text-[var(--cream-dim)] text-sm">Place name on the legend</label>
             <input value={legendName} onChange={(e) => setLegendName(e.target.value)}
               className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
-            <input value={legendLine2} onChange={(e) => setLegendLine2(e.target.value)}
-              placeholder="Second line, optional. A date, a name, the reason it matters."
+            <input value={legendLine2} onChange={(e) => setLegendLine2(e.target.value)} placeholder="Second line, optional. A date, a name, the reason it matters."
               className="w-full mt-3 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] text-sm focus:outline-none focus:border-[var(--rust)] transition-colors" />
           </div>
 
@@ -262,10 +292,10 @@ export default function Studio() {
             <SectionTitle n="04" title="Save or order" />
             <div className="grid grid-cols-2 gap-3">
               <button onClick={handleSave} className="btn-ghost flex items-center justify-center gap-2"><Save size={15} /> Save</button>
-              <button onClick={handleOrder} className="btn-rust flex items-center justify-center gap-2"><ShoppingCart size={15} /> Order · $249</button>
+              <button onClick={() => setOrderOpen(true)} className="btn-rust flex items-center justify-center gap-2"><ShoppingCart size={15} /> Order · $249</button>
             </div>
             <div className="mt-5 space-y-2">
-              <div className="mono-label text-[var(--slate-dim)]">Edition 1 of 1 \u00b7 Your file is never resold</div>
+              <div className="mono-label text-[var(--slate-dim)]">Edition 1 of 1 · Your file is never resold</div>
               <div className="mono-label text-[var(--slate-dim)]">Final proof emailed before anything prints</div>
             </div>
           </div>
@@ -281,29 +311,16 @@ export default function Studio() {
           </div>
 
           <div className={`mx-auto relative rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-2)] shadow-[0_40px_100px_-40px_rgba(0,0,0,0.9)] ${isPortrait ? 'max-w-[520px] aspect-[3/4]' : 'max-w-[720px] aspect-[4/3]'}`}>
-            {/* Map image with pan/zoom */}
-            <div className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing" onMouseDown={startDrag}>
-              <img
-                src={activeStyle.img} alt="preview" draggable={false}
-                className="w-full h-full object-cover select-none transition-transform duration-75"
-                style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})` }}
-              />
-              <div className="absolute inset-0 pointer-events-none" style={{ background: activeStyle.tint }} />
-              <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent 45%, rgba(11,28,41,0.92))' }} />
-              {mode === 'streets' && (
-                <div className="absolute inset-0 pointer-events-none opacity-40" style={{ backgroundImage: 'linear-gradient(rgba(242,234,214,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(242,234,214,0.15) 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
-              )}
-            </div>
+            <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef} />
+            <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent 45%, rgba(11,28,41,0.92))' }} />
 
-            {/* Zoom controls */}
-            <div className="absolute top-4 right-4 flex flex-col rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-0)]/80">
-              <button onClick={() => setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)))} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Plus size={16} /></button>
+            <div className="absolute top-4 right-4 z-[400] flex flex-col rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-0)]/80">
+              <button onClick={zoomIn} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Plus size={16} /></button>
               <span className="h-px bg-[var(--line)]" />
-              <button onClick={() => setZoom((z) => Math.max(1, +(z - 0.2).toFixed(2)))} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Minus size={16} /></button>
+              <button onClick={zoomOut} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Minus size={16} /></button>
             </div>
 
-            {/* Legend overlay */}
-            <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none">
+            <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none z-[400]">
               <div className="font-display font-bold text-2xl leading-tight">{legendName || place.name}</div>
               {(legendLine2 || place.sub) && <div className="text-[var(--slate)] text-sm mt-1">{legendLine2 || place.sub}</div>}
               <div className="font-mono text-[0.72rem] text-[var(--cream-dim)] mt-3 tracking-wide">
@@ -312,19 +329,18 @@ export default function Studio() {
               <div className="mono-label text-[var(--rust)] mt-3">Edition 1 of 1</div>
             </div>
 
-            <div className="absolute bottom-4 right-4 flex items-center gap-1.5 bg-[var(--bg-0)]/85 border border-[var(--line)] rounded-full px-3 py-1.5">
+            <div className="absolute bottom-4 right-4 z-[400] flex items-center gap-1.5 bg-[var(--bg-0)]/85 border border-[var(--line)] rounded-full px-3 py-1.5">
               <Info size={13} className="text-[var(--slate)]" />
-              <span className="mono-label text-[var(--slate)] !text-[0.6rem]">USGS 3DEP, NOAA via Terrain Tiles</span>
+              <span className="mono-label text-[var(--slate)] !text-[0.6rem]">{mode === 'streets' ? 'OpenStreetMap' : 'USGS 3DEP, NOAA via Terrain Tiles'}</span>
             </div>
           </div>
 
-          {/* Info bar */}
           <div className="mt-6 flex flex-wrap gap-x-8 gap-y-3 justify-center">
             {[
               ['Center', `${fmtLat(place.lat)}, ${fmtLng(place.lng)}`],
               ['Scale', scaleRatio],
-              ['Elev', `${place.elev} FT`],
-              ['Relief in frame', `\u2248${Math.round(place.elev * 1.05)} FT`],
+              ['Elev', place.elev != null ? `${place.elev} FT` : '—'],
+              ['Relief in frame', place.elev != null ? `≈${Math.round(place.elev * 1.05)} FT` : '—'],
               ['Format', formatLabel],
             ].map(([k, v]) => (
               <div key={k} className="text-center">
@@ -365,16 +381,17 @@ export default function Studio() {
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="font-display font-bold">{d.name}</div>
-                          <div className="mono-label text-[var(--rust)] mt-1 !text-[0.6rem]">{d.coords}</div>
+                          <div className="mono-label text-[var(--rust)] mt-1 !text-[0.6rem]">{fmtLat(d.lat)}, {fmtLng(d.lng)}</div>
                         </div>
                         <button onClick={() => deleteDesign(d.id)} className="text-[var(--slate)] hover:text-[var(--rust)]"><Trash2 size={16} /></button>
                       </div>
                       <div className="flex items-center gap-3 mt-3 text-[var(--slate)] text-xs">
-                        <span className="flex items-center gap-1"><Check size={12} className="text-[var(--rust)]" /> {d.size === '12x16' ? '12\u00d716' : '16\u00d720'}</span>
+                        <span className="flex items-center gap-1"><Check size={12} className="text-[var(--rust)]" /> {d.size === '12x16' ? '12×16' : '16×20'}</span>
                         <span>{d.orientation}</span>
                         <span>{d.style}</span>
-                        <span className="ml-auto">{d.savedAt}</span>
                       </div>
+                      <button onClick={() => { applyPlace({ name: d.name, sub: d.sub, lat: d.lat, lng: d.lng }); setMode(d.mode); setStyle(d.style); setSize(d.size); setOrientation(d.orientation); setLegendName(d.name); setLegendLine2(d.sub || ''); setShowDesigns(false); }}
+                        className="btn-ghost w-full mt-4 !py-2">Load in studio</button>
                     </div>
                   </div>
                 ))}
@@ -383,6 +400,8 @@ export default function Studio() {
           </div>
         </div>
       )}
+
+      <OrderModal open={orderOpen} onClose={() => { setOrderOpen(false); }} design={currentDesign()} clientId={clientId} config={config} />
     </div>
   );
 }
