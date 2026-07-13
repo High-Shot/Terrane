@@ -105,9 +105,14 @@ export default function Studio() {
     try {
       const { data } = await api.get('/elevation', { params: { lat, lng } });
       setPlace((p) => ({ ...p, elev: data.elevation_ft }));
-    } catch { /* keep existing */ }
+    } catch (error) {
+      console.error('Failed to fetch elevation:', error);
+      // Non-blocking: keep the previous elevation value rather than interrupting the design flow.
+    }
   }, []);
-  useEffect(() => { fetchElevation(place.lat, place.lng); /* eslint-disable-next-line */ }, [place.lat, place.lng]);
+  // Intentionally only re-run on coordinate change; fetchElevation is stable (useCallback with []).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchElevation(place.lat, place.lng); }, [place.lat, place.lng]);
 
   // Debounced autocomplete
   useEffect(() => {
@@ -254,8 +259,8 @@ export default function Studio() {
                   className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
                 {suggests.length > 0 && (
                   <div className="absolute left-0 right-0 z-20 mt-1 bg-[var(--bg-1)] border border-[var(--line-strong)] rounded-sm max-h-64 overflow-y-auto shadow-xl">
-                    {suggests.map((s, i) => (
-                      <button key={i} onClick={() => applyPlace(s)} className="w-full text-left px-4 py-2.5 hover:bg-[var(--rust)]/10 border-b border-[var(--line)] last:border-0">
+                    {suggests.map((s) => (
+                      <button key={`${s.lat},${s.lng},${s.name}`} onClick={() => applyPlace(s)} className="w-full text-left px-4 py-2.5 hover:bg-[var(--rust)]/10 border-b border-[var(--line)] last:border-0">
                         <div className="text-[var(--cream)] text-sm">{s.name}</div>
                         <div className="text-[var(--slate)] text-xs mt-0.5">{s.sub}</div>
                       </button>

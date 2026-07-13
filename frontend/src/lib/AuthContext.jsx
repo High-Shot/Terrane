@@ -7,34 +7,37 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
 
+  // On mount, ask the backend who we are. The httpOnly cookie (if present)
+  // is sent automatically, so there is no token to read on the client.
   useEffect(() => {
-    const token = localStorage.getItem("terrane_token");
-    if (!token) { setReady(true); return; }
-    api.get("/auth/me")
-      .then((r) => setUser(r.data))
-      .catch(() => { localStorage.removeItem("terrane_token"); })
-      .finally(() => setReady(true));
+    let active = true;
+    api
+      .get("/auth/me")
+      .then((r) => { if (active) setUser(r.data); })
+      .catch(() => { if (active) setUser(null); })
+      .finally(() => { if (active) setReady(true); });
+    return () => { active = false; };
   }, []);
 
-  const persist = (token, u) => {
-    localStorage.setItem("terrane_token", token);
-    setUser(u);
-  };
-
   const register = useCallback(async ({ email, password, name }) => {
+    // Backend sets the httpOnly auth cookie in its response.
     const { data } = await api.post("/auth/register", { email, password, name, client_id: getClientId() });
-    persist(data.token, data.user);
+    setUser(data.user);
     return data.user;
   }, []);
 
   const login = useCallback(async ({ email, password }) => {
     const { data } = await api.post("/auth/login", { email, password, client_id: getClientId() });
-    persist(data.token, data.user);
+    setUser(data.user);
     return data.user;
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem("terrane_token");
+  const logout = useCallback(async () => {
+    try {
+      await api.post("/auth/logout");
+    } catch (error) {
+      console.error("Logout request failed:", error);
+    }
     setUser(null);
   }, []);
 

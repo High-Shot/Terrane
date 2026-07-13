@@ -64,8 +64,8 @@ export default function Home() {
         {/* FEATURE BAR */}
         <div className="border-t border-b border-[var(--line)] bg-[var(--bg-1)]/60">
           <div className="container-x grid grid-cols-2 lg:grid-cols-4 divide-x divide-[var(--line)]">
-            {FEATURES.map((f, i) => (
-              <div key={i} className="py-8 px-4 lg:px-8 flex gap-3">
+            {FEATURES.map((f) => (
+              <div key={f.title} className="py-8 px-4 lg:px-8 flex gap-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--rust)] mt-1.5 shrink-0" />
                 <div>
                   <div className="mono-label text-[var(--cream)]">{f.title}</div>
@@ -93,7 +93,7 @@ export default function Home() {
 
           <div className="mt-16 grid md:grid-cols-3 gap-6">
             {DATA_SOURCES.map((d, i) => (
-              <div key={i} className="reveal data-card rounded-sm overflow-hidden border border-[var(--line)] bg-[var(--panel-solid)]">
+              <div key={d.tag} className="reveal data-card rounded-sm overflow-hidden border border-[var(--line)] bg-[var(--panel-solid)]">
                 <div className="relative h-48 overflow-hidden">
                   <img src={d.image} alt={d.title} className="w-full h-full object-cover" />
                   <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(11,28,41,0.2), rgba(11,28,41,0.85))' }} />
@@ -123,7 +123,7 @@ export default function Home() {
             </h2>
             <ul className="mt-9 space-y-5">
               {LEGEND_POINTS.map((p, i) => (
-                <li key={i} className="reveal flex gap-4">
+                <li key={p} className="reveal flex gap-4">
                   <span className="mono-label text-[var(--rust)] mt-0.5 shrink-0">{String(i + 1).padStart(2, '0')}</span>
                   <span className="text-[var(--cream-dim)] leading-relaxed">{p}</span>
                 </li>
@@ -190,8 +190,8 @@ export default function Home() {
           </p>
 
           <div className="mt-14 grid md:grid-cols-2 gap-6">
-            {SIZES.map((s, i) => (
-              <div key={i} className="reveal data-card rounded-sm border border-[var(--line)] bg-[var(--bg-0)] p-9 flex flex-col">
+            {SIZES.map((s) => (
+              <div key={s.size} className="reveal data-card rounded-sm border border-[var(--line)] bg-[var(--bg-0)] p-9 flex flex-col">
                 <div className="flex items-start justify-between">
                   <div className="font-display font-black text-[2.6rem] tracking-[-0.02em]">{s.size}</div>
                   <MapPin size={22} className="text-[var(--rust)] mt-2" />

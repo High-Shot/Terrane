@@ -3,16 +3,11 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
-export const api = axios.create({ baseURL: API });
+// Cookie-based auth: the JWT lives in an httpOnly cookie set by the backend.
+// withCredentials ensures the browser sends that cookie with every request.
+export const api = axios.create({ baseURL: API, withCredentials: true });
 
-// Attach JWT (if present) to every request
-api.interceptors.request.use((cfg) => {
-  const token = localStorage.getItem("terrane_token");
-  if (token) cfg.headers.Authorization = `Bearer ${token}`;
-  return cfg;
-});
-
-// Anonymous client id (no auth) persisted in browser
+// Anonymous client id (non-sensitive guest identifier) persisted in browser
 export function getClientId() {
   let id = localStorage.getItem("terrane_client_id");
   if (!id) {

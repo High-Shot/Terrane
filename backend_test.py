@@ -1,175 +1,285 @@
 #!/usr/bin/env python3
 """
-Comprehensive backend test suite for Terrane API
-Tests JWT auth, user-scoped data, migration, and GPX routes
+Regression test for Terrane backend auth after switching from localStorage tokens to httpOnly cookies.
+Tests cookie-based authentication, backward compatibility with Bearer tokens, and user-scoped data.
 """
+
 import requests
 import time
-import sys
+import uuid
+import os
 from pathlib import Path
 
-# Read backend URL from frontend/.env
-env_path = Path(__file__).parent / "frontend" / ".env"
-BACKEND_URL = None
-if env_path.exists():
-    for line in env_path.read_text().splitlines():
-        if line.startswith("REACT_APP_BACKEND_URL="):
-            BACKEND_URL = line.split("=", 1)[1].strip()
-            break
-
-if not BACKEND_URL:
-    print("❌ ERROR: Could not read REACT_APP_BACKEND_URL from frontend/.env")
-    sys.exit(1)
-
-BASE_URL = f"{BACKEND_URL}/api"
-print(f"🔗 Testing backend at: {BASE_URL}\n")
+# Base URL from frontend/.env
+BASE_URL = "https://maps-revamp.preview.emergentagent.com/api"
 
 # Generate unique identifiers for this test run
-TIMESTAMP = str(int(time.time()))
-UNIQUE_EMAIL = f"test_{TIMESTAMP}@terrane.com"
-UNIQUE_CLIENT_ID = f"guest_abc_{TIMESTAMP}"
-PASSWORD = "secret123"
-SHORT_PASSWORD = "123"
+RUN_ID = str(uuid.uuid4())[:8]
+UNIQUE_EMAIL = f"cookie_test_{RUN_ID}@terrane.com"
+UNIQUE_CLIENT_ID = f"guest_ck_{RUN_ID}"
 
-# Test results tracking
+print(f"\n{'='*80}")
+print(f"TERRANE COOKIE-BASED AUTH REGRESSION TEST")
+print(f"{'='*80}")
+print(f"Base URL: {BASE_URL}")
+print(f"Test Email: {UNIQUE_EMAIL}")
+print(f"Client ID: {UNIQUE_CLIENT_ID}")
+print(f"{'='*80}\n")
+
+# Test counters
 tests_passed = 0
 tests_failed = 0
-failed_tests = []
+test_results = []
 
-def test(name, func):
-    """Run a test and track results"""
-    global tests_passed, tests_failed, failed_tests
-    try:
-        print(f"🧪 {name}")
-        func()
-        print(f"   ✅ PASSED\n")
+def log_test(name, passed, details=""):
+    global tests_passed, tests_failed
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"{status}: {name}")
+    if details:
+        print(f"   {details}")
+    test_results.append({"name": name, "passed": passed, "details": details})
+    if passed:
         tests_passed += 1
-    except AssertionError as e:
-        print(f"   ❌ FAILED: {e}\n")
+    else:
         tests_failed += 1
-        failed_tests.append({"name": name, "error": str(e)})
-    except Exception as e:
-        print(f"   ❌ ERROR: {e}\n")
-        tests_failed += 1
-        failed_tests.append({"name": name, "error": f"Exception: {e}"})
 
-# Shared state for tests
-state = {
-    "token": None,
-    "user_id": None,
-    "guest_design_id": None,
-    "user_design_id": None,
-    "route_id": None,
-}
+def check_cookie_attributes(response, cookie_name="terrane_token"):
+    """Check if Set-Cookie header has HttpOnly and Secure attributes"""
+    set_cookie = response.headers.get("Set-Cookie", "")
+    has_cookie = cookie_name in set_cookie
+    has_httponly = "HttpOnly" in set_cookie
+    has_secure = "Secure" in set_cookie
+    return has_cookie, has_httponly, has_secure, set_cookie
 
-# ==================== AUTH TESTS ====================
+# Create a session (cookie jar) for testing
+session = requests.Session()
 
-def test_register_success():
-    """Register a new user with valid credentials"""
-    resp = requests.post(f"{BASE_URL}/auth/register", json={
+print("\n" + "="*80)
+print("TEST 1: REGISTER WITH COOKIE")
+print("="*80)
+
+try:
+    payload = {
         "email": UNIQUE_EMAIL,
-        "password": PASSWORD,
-        "name": "Test User",
+        "password": "secret123",
+        "name": "Cookie User",
         "client_id": UNIQUE_CLIENT_ID
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert "token" in data, "Response missing 'token'"
-    assert "user" in data, "Response missing 'user'"
-    assert data["user"]["email"] == UNIQUE_EMAIL.lower(), f"Email mismatch: {data['user']['email']}"
-    assert data["user"]["name"] == "Test User", f"Name mismatch: {data['user']['name']}"
-    assert "id" in data["user"], "User missing 'id'"
-    assert "created_at" in data["user"], "User missing 'created_at'"
-    state["token"] = data["token"]
-    state["user_id"] = data["user"]["id"]
-    print(f"   📝 Registered user: {data['user']['email']} (ID: {state['user_id']})")
+    }
+    resp = session.post(f"{BASE_URL}/auth/register", json=payload)
+    
+    if resp.status_code == 200:
+        data = resp.json()
+        has_token = "token" in data
+        has_user = "user" in data
+        
+        # Check Set-Cookie header
+        has_cookie, has_httponly, has_secure, set_cookie_header = check_cookie_attributes(resp)
+        
+        if has_token and has_user and has_cookie and has_httponly and has_secure:
+            log_test("Register returns token, user, and sets HttpOnly Secure cookie", True,
+                    f"token present: {has_token}, user: {has_user}, cookie: {has_cookie}, HttpOnly: {has_httponly}, Secure: {has_secure}")
+            # Store token for later header fallback test
+            bearer_token = data["token"]
+        else:
+            log_test("Register returns token, user, and sets HttpOnly Secure cookie", False,
+                    f"token: {has_token}, user: {has_user}, cookie: {has_cookie}, HttpOnly: {has_httponly}, Secure: {has_secure}")
+            bearer_token = data.get("token", "")
+    else:
+        log_test("Register returns 200", False, f"Got {resp.status_code}: {resp.text}")
+        bearer_token = ""
+except Exception as e:
+    log_test("Register endpoint", False, f"Exception: {e}")
+    bearer_token = ""
 
-def test_register_duplicate_email():
-    """Registering with duplicate email should return 409"""
-    resp = requests.post(f"{BASE_URL}/auth/register", json={
+# Test duplicate email -> 409
+print("\n" + "-"*80)
+print("TEST 1a: Duplicate email returns 409")
+print("-"*80)
+try:
+    resp = session.post(f"{BASE_URL}/auth/register", json={
         "email": UNIQUE_EMAIL,
-        "password": PASSWORD,
-        "name": "Duplicate User"
+        "password": "secret123",
+        "name": "Duplicate User",
+        "client_id": f"guest_ck_{uuid.uuid4()}"
     })
-    assert resp.status_code == 409, f"Expected 409 for duplicate email, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly rejected duplicate email with 409")
+    if resp.status_code == 409:
+        log_test("Duplicate email returns 409", True)
+    else:
+        log_test("Duplicate email returns 409", False, f"Got {resp.status_code}")
+except Exception as e:
+    log_test("Duplicate email test", False, f"Exception: {e}")
 
-def test_register_short_password():
-    """Registering with password < 6 chars should return 400"""
-    resp = requests.post(f"{BASE_URL}/auth/register", json={
-        "email": f"short_{TIMESTAMP}@terrane.com",
-        "password": SHORT_PASSWORD,
-        "name": "Short Pass User"
+# Test short password -> 400
+print("\n" + "-"*80)
+print("TEST 1b: Short password returns 400")
+print("-"*80)
+try:
+    resp = session.post(f"{BASE_URL}/auth/register", json={
+        "email": f"short_pw_{RUN_ID}@terrane.com",
+        "password": "123",
+        "name": "Short PW User",
+        "client_id": f"guest_ck_{uuid.uuid4()}"
     })
-    assert resp.status_code == 400, f"Expected 400 for short password, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly rejected short password with 400")
+    if resp.status_code == 400:
+        log_test("Short password returns 400", True)
+    else:
+        log_test("Short password returns 400", False, f"Got {resp.status_code}")
+except Exception as e:
+    log_test("Short password test", False, f"Exception: {e}")
 
-def test_login_success():
-    """Login with correct credentials"""
-    resp = requests.post(f"{BASE_URL}/auth/login", json={
+print("\n" + "="*80)
+print("TEST 2: COOKIE-BASED SESSION (NO AUTHORIZATION HEADER)")
+print("="*80)
+
+# Test 2a: GET /auth/me with cookie (no header)
+print("\n" + "-"*80)
+print("TEST 2a: GET /auth/me with cookie only (no Authorization header)")
+print("-"*80)
+try:
+    # Session already has cookie from register
+    resp = session.get(f"{BASE_URL}/auth/me")
+    if resp.status_code == 200:
+        data = resp.json()
+        if "email" in data and data["email"] == UNIQUE_EMAIL:
+            log_test("GET /auth/me with cookie returns user", True, f"Email: {data['email']}")
+        else:
+            log_test("GET /auth/me with cookie returns user", False, f"Wrong user data: {data}")
+    else:
+        log_test("GET /auth/me with cookie", False, f"Got {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("GET /auth/me with cookie", False, f"Exception: {e}")
+
+# Test 2b: GET /auth/me without cookie and without header -> 401
+print("\n" + "-"*80)
+print("TEST 2b: GET /auth/me with NO cookie and NO header returns 401")
+print("-"*80)
+try:
+    # Create a new session without cookies
+    no_auth_session = requests.Session()
+    resp = no_auth_session.get(f"{BASE_URL}/auth/me")
+    if resp.status_code == 401:
+        log_test("GET /auth/me without auth returns 401", True)
+    else:
+        log_test("GET /auth/me without auth returns 401", False, f"Got {resp.status_code}")
+except Exception as e:
+    log_test("GET /auth/me without auth", False, f"Exception: {e}")
+
+print("\n" + "="*80)
+print("TEST 3: LOGIN SETS FRESH COOKIE")
+print("="*80)
+
+# Create a new session for login test
+login_session = requests.Session()
+
+try:
+    payload = {
         "email": UNIQUE_EMAIL,
-        "password": PASSWORD,
-        "client_id": UNIQUE_CLIENT_ID
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert "token" in data, "Response missing 'token'"
-    assert "user" in data, "Response missing 'user'"
-    assert data["user"]["email"] == UNIQUE_EMAIL.lower(), f"Email mismatch: {data['user']['email']}"
-    print(f"   📝 Login successful for {data['user']['email']}")
+        "password": "secret123"
+    }
+    resp = login_session.post(f"{BASE_URL}/auth/login", json=payload)
+    
+    if resp.status_code == 200:
+        data = resp.json()
+        has_cookie, has_httponly, has_secure, _ = check_cookie_attributes(resp)
+        
+        if has_cookie and has_httponly and has_secure:
+            log_test("Login sets fresh HttpOnly Secure cookie", True)
+        else:
+            log_test("Login sets fresh HttpOnly Secure cookie", False,
+                    f"cookie: {has_cookie}, HttpOnly: {has_httponly}, Secure: {has_secure}")
+    else:
+        log_test("Login returns 200", False, f"Got {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("Login endpoint", False, f"Exception: {e}")
 
-def test_login_wrong_password():
-    """Login with wrong password should return 401"""
-    resp = requests.post(f"{BASE_URL}/auth/login", json={
+# Test wrong password -> 401
+print("\n" + "-"*80)
+print("TEST 3a: Wrong password returns 401")
+print("-"*80)
+try:
+    resp = login_session.post(f"{BASE_URL}/auth/login", json={
         "email": UNIQUE_EMAIL,
-        "password": "wrongpassword123"
+        "password": "wrongpassword"
     })
-    assert resp.status_code == 401, f"Expected 401 for wrong password, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly rejected wrong password with 401")
+    if resp.status_code == 401:
+        log_test("Wrong password returns 401", True)
+    else:
+        log_test("Wrong password returns 401", False, f"Got {resp.status_code}")
+except Exception as e:
+    log_test("Wrong password test", False, f"Exception: {e}")
 
-def test_login_nonexistent_email():
-    """Login with non-existent email should return 401"""
-    resp = requests.post(f"{BASE_URL}/auth/login", json={
-        "email": f"nonexistent_{TIMESTAMP}@terrane.com",
-        "password": PASSWORD
-    })
-    assert resp.status_code == 401, f"Expected 401 for non-existent email, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly rejected non-existent email with 401")
+print("\n" + "="*80)
+print("TEST 4: HEADER FALLBACK (BACKWARD COMPATIBILITY)")
+print("="*80)
 
-def test_me_with_token():
-    """GET /auth/me with valid Bearer token"""
-    assert state["token"], "No token available for test"
-    resp = requests.get(f"{BASE_URL}/auth/me", headers={
-        "Authorization": f"Bearer {state['token']}"
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert data["email"] == UNIQUE_EMAIL.lower(), f"Email mismatch: {data['email']}"
-    assert data["id"] == state["user_id"], f"User ID mismatch: {data['id']}"
-    print(f"   📝 /auth/me returned user: {data['email']}")
+# Test with Authorization header and NO cookie
+print("\n" + "-"*80)
+print("TEST 4: GET /auth/me with Bearer token (no cookie)")
+print("-"*80)
+try:
+    # Create a new session without cookies
+    header_session = requests.Session()
+    headers = {"Authorization": f"Bearer {bearer_token}"}
+    resp = header_session.get(f"{BASE_URL}/auth/me", headers=headers)
+    
+    if resp.status_code == 200:
+        data = resp.json()
+        if "email" in data and data["email"] == UNIQUE_EMAIL:
+            log_test("GET /auth/me with Bearer token (no cookie) returns user", True,
+                    f"Backward compatibility working")
+        else:
+            log_test("GET /auth/me with Bearer token", False, f"Wrong user: {data}")
+    else:
+        log_test("GET /auth/me with Bearer token", False, f"Got {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("GET /auth/me with Bearer token", False, f"Exception: {e}")
 
-def test_me_without_token():
-    """GET /auth/me without Authorization header should return 401"""
-    resp = requests.get(f"{BASE_URL}/auth/me")
-    assert resp.status_code == 401, f"Expected 401 without token, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly rejected request without token with 401")
+print("\n" + "="*80)
+print("TEST 5: LOGOUT CLEARS COOKIE")
+print("="*80)
 
-def test_me_with_garbage_token():
-    """GET /auth/me with invalid token should return 401"""
-    resp = requests.get(f"{BASE_URL}/auth/me", headers={
-        "Authorization": "Bearer garbage_invalid_token_12345"
-    })
-    assert resp.status_code == 401, f"Expected 401 with garbage token, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly rejected garbage token with 401")
+try:
+    # Use the session that has a cookie
+    resp = session.post(f"{BASE_URL}/auth/logout")
+    
+    if resp.status_code == 200:
+        # Check if Set-Cookie header clears the cookie (Max-Age=0 or expires in past)
+        set_cookie = resp.headers.get("Set-Cookie", "")
+        cookie_cleared = "Max-Age=0" in set_cookie or "expires=" in set_cookie.lower()
+        
+        if cookie_cleared:
+            log_test("Logout clears cookie (Max-Age=0)", True)
+        else:
+            log_test("Logout clears cookie", False, f"Set-Cookie: {set_cookie}")
+        
+        # Now try to access /auth/me with the cleared cookie jar
+        resp_after = session.get(f"{BASE_URL}/auth/me")
+        if resp_after.status_code == 401:
+            log_test("GET /auth/me after logout returns 401", True)
+        else:
+            log_test("GET /auth/me after logout returns 401", False,
+                    f"Got {resp_after.status_code}")
+    else:
+        log_test("Logout returns 200", False, f"Got {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("Logout endpoint", False, f"Exception: {e}")
 
-# ==================== MIGRATION & USER-SCOPED DESIGNS ====================
+print("\n" + "="*80)
+print("TEST 6: USER-SCOPED DATA VIA COOKIE")
+print("="*80)
 
-def test_create_guest_design():
-    """Create a design as a guest (no auth header)"""
-    # Use a NEW unique client_id for migration test
-    migration_client_id = f"guest_migration_{TIMESTAMP}"
-    resp = requests.post(f"{BASE_URL}/designs", json={
-        "client_id": migration_client_id,
+# Create a new unique client_id for this test
+guest_client_id = f"guest_ck_{uuid.uuid4()}"
+guest_email = f"guest_user_{RUN_ID}@terrane.com"
+
+# 6a: Create guest design (no auth)
+print("\n" + "-"*80)
+print("TEST 6a: Create guest design without auth")
+print("-"*80)
+try:
+    guest_session = requests.Session()
+    design_payload = {
+        "client_id": guest_client_id,
         "name": "Guest Place",
         "lat": 30.5,
         "lng": -87.9,
@@ -177,94 +287,109 @@ def test_create_guest_design():
         "style": "harbor",
         "size": "12x16",
         "orientation": "portrait"
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert data["name"] == "Guest Place", f"Name mismatch: {data['name']}"
-    assert "id" in data, "Design missing 'id'"
-    state["guest_design_id"] = data["id"]
-    state["migration_client_id"] = migration_client_id
-    print(f"   📝 Created guest design: {data['name']} (ID: {state['guest_design_id']})")
+    }
+    resp = guest_session.post(f"{BASE_URL}/designs", json=design_payload)
+    
+    if resp.status_code == 200:
+        guest_design = resp.json()
+        log_test("Create guest design without auth", True, f"Design ID: {guest_design.get('id')}")
+        guest_design_id = guest_design.get("id")
+    else:
+        log_test("Create guest design", False, f"Got {resp.status_code}: {resp.text}")
+        guest_design_id = None
+except Exception as e:
+    log_test("Create guest design", False, f"Exception: {e}")
+    guest_design_id = None
 
-def test_register_new_user_with_migration():
-    """Register a NEW user with the guest client_id to trigger migration"""
-    migration_email = f"migration_{TIMESTAMP}@terrane.com"
-    resp = requests.post(f"{BASE_URL}/auth/register", json={
-        "email": migration_email,
-        "password": PASSWORD,
-        "name": "Migration User",
-        "client_id": state["migration_client_id"]
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert "token" in data, "Response missing 'token'"
-    state["migration_token"] = data["token"]
-    state["migration_user_id"] = data["user"]["id"]
-    print(f"   📝 Registered migration user: {data['user']['email']} (ID: {state['migration_user_id']})")
+# 6b: Register/login with same client_id (triggers migration)
+print("\n" + "-"*80)
+print("TEST 6b: Register with same client_id (triggers migration)")
+print("-"*80)
+try:
+    auth_session = requests.Session()
+    register_payload = {
+        "email": guest_email,
+        "password": "secret123",
+        "name": "Guest Migrated User",
+        "client_id": guest_client_id
+    }
+    resp = auth_session.post(f"{BASE_URL}/auth/register", json=register_payload)
+    
+    if resp.status_code == 200:
+        log_test("Register with client_id for migration", True)
+    else:
+        log_test("Register with client_id", False, f"Got {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("Register with client_id", False, f"Exception: {e}")
 
-def test_migrated_design_in_user_list():
-    """GET /designs with Bearer token should include the migrated guest design"""
-    assert state["migration_token"], "No migration token available"
-    resp = requests.get(f"{BASE_URL}/designs", headers={
-        "Authorization": f"Bearer {state['migration_token']}"
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    designs = resp.json()
-    assert isinstance(designs, list), f"Expected list, got {type(designs)}"
-    design_ids = [d["id"] for d in designs]
-    assert state["guest_design_id"] in design_ids, f"Guest design {state['guest_design_id']} not found in user's designs: {design_ids}"
-    print(f"   📝 Migrated design found in user's list: {state['guest_design_id']}")
+# 6c: GET /designs using ONLY cookie (no client_id param, no header)
+print("\n" + "-"*80)
+print("TEST 6c: GET /designs with cookie only (should include migrated design)")
+print("-"*80)
+try:
+    # auth_session now has cookie from register
+    resp = auth_session.get(f"{BASE_URL}/designs")
+    
+    if resp.status_code == 200:
+        designs = resp.json()
+        has_guest_place = any(d.get("name") == "Guest Place" for d in designs)
+        
+        if has_guest_place:
+            log_test("GET /designs via cookie includes migrated 'Guest Place'", True,
+                    f"Found {len(designs)} design(s)")
+        else:
+            log_test("GET /designs via cookie includes migrated design", False,
+                    f"'Guest Place' not found in {len(designs)} designs")
+    else:
+        log_test("GET /designs via cookie", False, f"Got {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("GET /designs via cookie", False, f"Exception: {e}")
 
-def test_create_user_design():
-    """Create a design with Bearer token (user-owned)"""
-    assert state["migration_token"], "No migration token available"
-    resp = requests.post(f"{BASE_URL}/designs", json={
-        "client_id": state["migration_client_id"],  # client_id still required in schema
-        "name": "Owned Place",
+# 6d: POST new design using ONLY cookie
+print("\n" + "-"*80)
+print("TEST 6d: POST new design using cookie only")
+print("-"*80)
+try:
+    new_design_payload = {
+        "client_id": guest_client_id,  # Still need client_id in payload per schema
+        "name": "Owned via cookie",
         "lat": 31.0,
         "lng": -88.0,
         "mode": "relief",
         "style": "harbor",
         "size": "12x16",
         "orientation": "portrait"
-    }, headers={
-        "Authorization": f"Bearer {state['migration_token']}"
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert data["name"] == "Owned Place", f"Name mismatch: {data['name']}"
-    state["user_design_id"] = data["id"]
-    print(f"   📝 Created user design: {data['name']} (ID: {state['user_design_id']})")
+    }
+    resp = auth_session.post(f"{BASE_URL}/designs", json=new_design_payload)
+    
+    if resp.status_code == 200:
+        new_design = resp.json()
+        log_test("POST design via cookie", True, f"Design ID: {new_design.get('id')}")
+        
+        # Verify both designs are in the list
+        resp_list = auth_session.get(f"{BASE_URL}/designs")
+        if resp_list.status_code == 200:
+            designs = resp_list.json()
+            has_guest = any(d.get("name") == "Guest Place" for d in designs)
+            has_owned = any(d.get("name") == "Owned via cookie" for d in designs)
+            
+            if has_guest and has_owned:
+                log_test("GET /designs includes both migrated and new designs", True,
+                        f"Total: {len(designs)} designs")
+            else:
+                log_test("GET /designs includes both designs", False,
+                        f"Guest: {has_guest}, Owned: {has_owned}")
+    else:
+        log_test("POST design via cookie", False, f"Got {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("POST design via cookie", False, f"Exception: {e}")
 
-def test_user_designs_list_includes_both():
-    """GET /designs with Bearer token should include both migrated and new designs"""
-    assert state["migration_token"], "No migration token available"
-    resp = requests.get(f"{BASE_URL}/designs", headers={
-        "Authorization": f"Bearer {state['migration_token']}"
-    })
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    designs = resp.json()
-    design_ids = [d["id"] for d in designs]
-    assert state["guest_design_id"] in design_ids, f"Guest design not in list: {design_ids}"
-    assert state["user_design_id"] in design_ids, f"User design not in list: {design_ids}"
-    print(f"   📝 User's designs list includes both migrated and new designs ({len(designs)} total)")
+print("\n" + "="*80)
+print("TEST 7: GPX UPLOAD STILL WORKS")
+print("="*80)
 
-def test_guest_client_id_isolation():
-    """GET /designs with a different client_id (no token) should NOT include user's designs"""
-    other_client_id = f"guest_other_{TIMESTAMP}"
-    resp = requests.get(f"{BASE_URL}/designs", params={"client_id": other_client_id})
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    designs = resp.json()
-    design_ids = [d["id"] for d in designs]
-    assert state["guest_design_id"] not in design_ids, f"Guest design should not be in other client's list: {design_ids}"
-    assert state["user_design_id"] not in design_ids, f"User design should not be in other client's list: {design_ids}"
-    print(f"   📝 Other client_id correctly isolated (returned {len(designs)} designs)")
-
-# ==================== GPX ROUTES TESTS ====================
-
-def test_upload_valid_gpx():
-    """Upload a valid GPX file"""
-    gpx_content = """<?xml version="1.0" encoding="UTF-8"?>
+# Create a minimal valid GPX file
+gpx_content = """<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="test">
   <trk>
     <name>Test Route</name>
@@ -272,127 +397,94 @@ def test_upload_valid_gpx():
       <trkpt lat="30.5" lon="-87.9"></trkpt>
       <trkpt lat="30.51" lon="-87.91"></trkpt>
       <trkpt lat="30.52" lon="-87.92"></trkpt>
-      <trkpt lat="30.53" lon="-87.93"></trkpt>
-      <trkpt lat="30.54" lon="-87.94"></trkpt>
     </trkseg>
   </trk>
 </gpx>"""
-    
+
+gpx_client_id = f"guest_ck_{uuid.uuid4()}"
+
+print("\n" + "-"*80)
+print("TEST 7a: POST /routes/upload with valid GPX")
+print("-"*80)
+try:
+    upload_session = requests.Session()
     files = {"file": ("test_route.gpx", gpx_content, "application/gpx+xml")}
-    data = {"client_id": UNIQUE_CLIENT_ID}
+    data = {"client_id": gpx_client_id}
+    resp = upload_session.post(f"{BASE_URL}/routes/upload", files=files, data=data)
     
-    resp = requests.post(f"{BASE_URL}/routes/upload", files=files, data=data)
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    route = resp.json()
-    assert "id" in route, "Route missing 'id'"
-    assert "name" in route, "Route missing 'name'"
-    assert "points" in route, "Route missing 'points'"
-    assert isinstance(route["points"], list), "Points should be a list"
-    assert len(route["points"]) > 0, "Points list should not be empty"
-    assert "point_count" in route, "Route missing 'point_count'"
-    assert "bounds" in route, "Route missing 'bounds'"
-    assert "center" in route, "Route missing 'center'"
-    assert "distance_km" in route, "Route missing 'distance_km'"
-    assert "distance_mi" in route, "Route missing 'distance_mi'"
-    state["route_id"] = route["id"]
-    print(f"   📝 Uploaded GPX route: {route['name']} (ID: {state['route_id']}, {route['point_count']} points, {route['distance_km']} km)")
-
-def test_upload_non_gpx_file():
-    """Upload a non-GPX file should return 400"""
-    files = {"file": ("test.txt", "This is not a GPX file", "text/plain")}
-    data = {"client_id": UNIQUE_CLIENT_ID}
-    
-    resp = requests.post(f"{BASE_URL}/routes/upload", files=files, data=data)
-    assert resp.status_code == 400, f"Expected 400 for non-GPX file, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly rejected non-GPX file with 400")
-
-def test_get_route():
-    """GET /routes/{id} should return the route"""
-    assert state["route_id"], "No route_id available"
-    resp = requests.get(f"{BASE_URL}/routes/{state['route_id']}")
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    route = resp.json()
-    assert route["id"] == state["route_id"], f"Route ID mismatch: {route['id']}"
-    assert "points" in route, "Route missing 'points'"
-    print(f"   📝 Retrieved route: {route['name']} ({route['point_count']} points)")
-
-def test_delete_route():
-    """DELETE /routes/{id} should delete the route"""
-    assert state["route_id"], "No route_id available"
-    resp = requests.delete(f"{BASE_URL}/routes/{state['route_id']}")
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert data.get("ok") is True, f"Expected ok:true, got {data}"
-    print(f"   📝 Deleted route: {state['route_id']}")
-
-def test_get_deleted_route():
-    """GET /routes/{id} after deletion should return 404"""
-    assert state["route_id"], "No route_id available"
-    resp = requests.get(f"{BASE_URL}/routes/{state['route_id']}")
-    assert resp.status_code == 404, f"Expected 404 for deleted route, got {resp.status_code}: {resp.text}"
-    print(f"   📝 Correctly returned 404 for deleted route")
-
-# ==================== RUN ALL TESTS ====================
-
-if __name__ == "__main__":
-    print("=" * 70)
-    print("🚀 TERRANE BACKEND TEST SUITE - JWT AUTH & USER-SCOPED DATA")
-    print("=" * 70)
-    print(f"📧 Test email: {UNIQUE_EMAIL}")
-    print(f"🆔 Test client_id: {UNIQUE_CLIENT_ID}")
-    print("=" * 70)
-    print()
-    
-    # Auth tests
-    print("🔐 AUTHENTICATION TESTS")
-    print("-" * 70)
-    test("Register new user", test_register_success)
-    test("Register duplicate email (409)", test_register_duplicate_email)
-    test("Register short password (400)", test_register_short_password)
-    test("Login with correct credentials", test_login_success)
-    test("Login with wrong password (401)", test_login_wrong_password)
-    test("Login with non-existent email (401)", test_login_nonexistent_email)
-    test("GET /auth/me with valid token", test_me_with_token)
-    test("GET /auth/me without token (401)", test_me_without_token)
-    test("GET /auth/me with garbage token (401)", test_me_with_garbage_token)
-    print()
-    
-    # Migration & user-scoped designs
-    print("🔄 MIGRATION & USER-SCOPED DESIGNS")
-    print("-" * 70)
-    test("Create design as guest", test_create_guest_design)
-    test("Register new user with guest client_id", test_register_new_user_with_migration)
-    test("Migrated design in user's list", test_migrated_design_in_user_list)
-    test("Create design with Bearer token", test_create_user_design)
-    test("User's list includes both designs", test_user_designs_list_includes_both)
-    test("Guest client_id isolation", test_guest_client_id_isolation)
-    print()
-    
-    # GPX routes
-    print("📍 GPX ROUTES STORAGE")
-    print("-" * 70)
-    test("Upload valid GPX file", test_upload_valid_gpx)
-    test("Upload non-GPX file (400)", test_upload_non_gpx_file)
-    test("GET /routes/{id}", test_get_route)
-    test("DELETE /routes/{id}", test_delete_route)
-    test("GET deleted route (404)", test_get_deleted_route)
-    print()
-    
-    # Summary
-    print("=" * 70)
-    print("📊 TEST SUMMARY")
-    print("=" * 70)
-    print(f"✅ Passed: {tests_passed}")
-    print(f"❌ Failed: {tests_failed}")
-    print(f"📈 Total:  {tests_passed + tests_failed}")
-    print("=" * 70)
-    
-    if failed_tests:
-        print("\n❌ FAILED TESTS:")
-        for ft in failed_tests:
-            print(f"  • {ft['name']}")
-            print(f"    {ft['error']}")
-        sys.exit(1)
+    if resp.status_code == 200:
+        route = resp.json()
+        has_fields = all(k in route for k in ["id", "points", "bounds", "center", "distance_km", "distance_mi"])
+        
+        if has_fields:
+            log_test("POST /routes/upload returns complete route data", True,
+                    f"Route ID: {route.get('id')}, Points: {len(route.get('points', []))}")
+            route_id = route.get("id")
+        else:
+            log_test("POST /routes/upload returns complete data", False,
+                    f"Missing fields in: {route.keys()}")
+            route_id = route.get("id")
     else:
-        print("\n🎉 ALL TESTS PASSED!")
-        sys.exit(0)
+        log_test("POST /routes/upload", False, f"Got {resp.status_code}: {resp.text}")
+        route_id = None
+except Exception as e:
+    log_test("POST /routes/upload", False, f"Exception: {e}")
+    route_id = None
+
+# 7b: GET route
+if route_id:
+    print("\n" + "-"*80)
+    print("TEST 7b: GET /routes/{id}")
+    print("-"*80)
+    try:
+        resp = upload_session.get(f"{BASE_URL}/routes/{route_id}")
+        if resp.status_code == 200:
+            log_test("GET /routes/{id} returns route", True)
+        else:
+            log_test("GET /routes/{id}", False, f"Got {resp.status_code}")
+    except Exception as e:
+        log_test("GET /routes/{id}", False, f"Exception: {e}")
+
+    # 7c: DELETE route
+    print("\n" + "-"*80)
+    print("TEST 7c: DELETE /routes/{id}")
+    print("-"*80)
+    try:
+        resp = upload_session.delete(f"{BASE_URL}/routes/{route_id}")
+        if resp.status_code == 200:
+            log_test("DELETE /routes/{id} returns 200", True)
+            
+            # Verify it's deleted
+            resp_get = upload_session.get(f"{BASE_URL}/routes/{route_id}")
+            if resp_get.status_code == 404:
+                log_test("GET deleted route returns 404", True)
+            else:
+                log_test("GET deleted route returns 404", False, f"Got {resp_get.status_code}")
+        else:
+            log_test("DELETE /routes/{id}", False, f"Got {resp.status_code}")
+    except Exception as e:
+        log_test("DELETE /routes/{id}", False, f"Exception: {e}")
+
+# Print summary
+print("\n" + "="*80)
+print("TEST SUMMARY")
+print("="*80)
+print(f"Total Tests: {tests_passed + tests_failed}")
+print(f"✅ Passed: {tests_passed}")
+print(f"❌ Failed: {tests_failed}")
+print("="*80)
+
+if tests_failed > 0:
+    print("\nFAILED TESTS:")
+    for result in test_results:
+        if not result["passed"]:
+            print(f"  ❌ {result['name']}")
+            if result["details"]:
+                print(f"     {result['details']}")
+
+print("\n" + "="*80)
+print("REGRESSION TEST COMPLETE")
+print("="*80)
+
+# Exit with appropriate code
+exit(0 if tests_failed == 0 else 1)

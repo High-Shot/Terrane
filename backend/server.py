@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Query, UploadFile, File, Form, Header, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Query, UploadFile, File, Form, Header, Depends, Request, Response
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -142,18 +142,44 @@ def make_token(user_id: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
-async def get_optional_user(authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.lower().startswith("bearer "):
-        return None
-    token = authorization.split(" ", 1)[1].strip()
+COOKIE_NAME = "terrane_token"
+COOKIE_MAX_AGE = JWT_EXP_DAYS * 24 * 3600
+
+
+def _decode_user_id(token: str):
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        return payload.get("sub")
     except Exception:
         return None
-    user = await db.users.find_one({"id": payload.get("sub")})
+
+
+async def get_optional_user(request: Request, authorization: Optional[str] = Header(None)):
+    # Prefer httpOnly cookie; fall back to Authorization header for API clients.
+    token = request.cookies.get(COOKIE_NAME)
+    if not token and authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    user_id = _decode_user_id(token)
+    if not user_id:
+        return None
+    user = await db.users.find_one({"id": user_id})
     if user:
         user.pop("_id", None)
     return user
+
+
+def set_auth_cookie(response: Response, token: str):
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+    )
 
 
 async def require_user(user=Depends(get_optional_user)):
@@ -195,6 +221,47 @@ def _haversine_km(a, b):
     return 2 * R * math.asin(math.sqrt(h))
 
 
+def _gpx_local_tag(tag: str) -> str:
+    """Strip XML namespace from a tag name."""
+    return tag.split('}')[-1]
+
+
+def _gpx_extract_points_and_name(root):
+    """Walk the GPX tree once, collecting [lat, lon] points and the first name."""
+    pts, name = [], None
+    for el in root.iter():
+        t = _gpx_local_tag(el.tag)
+        if t in ("trkpt", "rtept", "wpt"):
+            try:
+                pts.append([float(el.attrib.get("lat")), float(el.attrib.get("lon"))])
+            except (TypeError, ValueError):
+                continue
+        elif t == "name" and name is None and el.text and el.text.strip():
+            name = el.text.strip()
+    return pts, name
+
+
+def _downsample(pts):
+    """Reduce point count for transport/rendering while keeping the last point."""
+    if len(pts) <= MAX_ROUTE_POINTS:
+        return pts
+    step = math.ceil(len(pts) / MAX_ROUTE_POINTS)
+    sampled = pts[::step]
+    if sampled[-1] != pts[-1]:
+        sampled.append(pts[-1])
+    return sampled
+
+
+def _route_metrics(pts):
+    """Compute bounds, center and total distance from a list of [lat, lon] points."""
+    lats = [p[0] for p in pts]
+    lons = [p[1] for p in pts]
+    bounds = [[min(lats), min(lons)], [max(lats), max(lons)]]
+    center = [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
+    dist = sum(_haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+    return bounds, center, dist
+
+
 def parse_gpx(raw: bytes):
     """Parse GPX bytes -> route dict. Handles namespaced or plain GPX."""
     try:
@@ -202,40 +269,12 @@ def parse_gpx(raw: bytes):
     except ET.ParseError:
         raise HTTPException(status_code=400, detail="Invalid GPX file")
 
-    def local(tag):
-        return tag.split('}')[-1]
-
-    pts = []
-    name = None
-    for el in root.iter():
-        t = local(el.tag)
-        if t in ("trkpt", "rtept", "wpt"):
-            try:
-                lat = float(el.attrib.get("lat"))
-                lon = float(el.attrib.get("lon"))
-                pts.append([lat, lon])
-            except (TypeError, ValueError):
-                continue
-        elif t == "name" and name is None and el.text and el.text.strip():
-            name = el.text.strip()
-
+    pts, name = _gpx_extract_points_and_name(root)
     if not pts:
         raise HTTPException(status_code=400, detail="No track points found in GPX")
 
-    # Downsample for transport/rendering
-    if len(pts) > MAX_ROUTE_POINTS:
-        step = math.ceil(len(pts) / MAX_ROUTE_POINTS)
-        sampled = pts[::step]
-        if sampled[-1] != pts[-1]:
-            sampled.append(pts[-1])
-    else:
-        sampled = pts
-
-    lats = [p[0] for p in pts]
-    lons = [p[1] for p in pts]
-    bounds = [[min(lats), min(lons)], [max(lats), max(lons)]]
-    center = [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
-    dist = sum(_haversine_km(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+    sampled = _downsample(pts)
+    bounds, center, dist = _route_metrics(pts)
 
     return {
         "name": name,
@@ -266,7 +305,7 @@ async def config():
 
 # ----------------------------- Auth -----------------------------
 @api_router.post("/auth/register")
-async def register(body: RegisterBody):
+async def register(body: RegisterBody, response: Response):
     email = body.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="An account with this email already exists")
@@ -281,17 +320,27 @@ async def register(body: RegisterBody):
     }
     await db.users.insert_one(user)
     await migrate_anon(body.client_id, user["id"])
-    return {"token": make_token(user["id"]), "user": public_user(user)}
+    token = make_token(user["id"])
+    set_auth_cookie(response, token)
+    return {"token": token, "user": public_user(user)}
 
 
 @api_router.post("/auth/login")
-async def login(body: LoginBody):
+async def login(body: LoginBody, response: Response):
     email = body.email.lower().strip()
     user = await db.users.find_one({"email": email})
     if not user or not verify_pw(body.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     await migrate_anon(body.client_id, user["id"])
-    return {"token": make_token(user["id"]), "user": public_user(user)}
+    token = make_token(user["id"])
+    set_auth_cookie(response, token)
+    return {"token": token, "user": public_user(user)}
+
+
+@api_router.post("/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie(COOKIE_NAME, path="/", samesite="none", secure=True)
+    return {"ok": True}
 
 
 @api_router.get("/auth/me", response_model=UserPublic)
@@ -576,7 +625,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origin_regex=".*",
     allow_methods=["*"],
     allow_headers=["*"],
 )

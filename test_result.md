@@ -217,6 +217,20 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "TESTED: GPX routes storage fully functional. ✓ Upload valid GPX file returns complete route object with id,name,points (array),point_count,bounds,center,distance_km,distance_mi. ✓ Non-GPX file correctly rejected with 400. ✓ GET /api/routes/{id} retrieves route with all fields. ✓ DELETE /api/routes/{id} returns {ok:true} and removes route. ✓ GET deleted route correctly returns 404. File parsing, storage, and CRUD operations all working correctly."
+  - task: "Cookie-based auth regression (httpOnly cookies)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "testing"
+        -comment: "REGRESSION TEST: Auth switched from localStorage tokens to httpOnly cookies. Testing all auth flows with cookie jar (requests.Session) and unique credentials per run."
+        -working: true
+        -agent: "testing"
+        -comment: "REGRESSION TEST COMPLETE - ALL 19 TESTS PASSED ✅ (1) REGISTER: Returns 200 with token+user AND sets Set-Cookie header with terrane_token (HttpOnly=true, Secure=true). Duplicate email correctly returns 409. Short password (<6 chars) correctly returns 400. (2) COOKIE-BASED SESSION: GET /auth/me with ONLY cookie (NO Authorization header) returns user correctly. GET /auth/me with NO cookie and NO header correctly returns 401. (3) LOGIN: Sets fresh cookie with HttpOnly and Secure attributes. Wrong password correctly returns 401. (4) HEADER FALLBACK (BACKWARD COMPATIBILITY): GET /auth/me with Bearer token (no cookie) returns user - backward compatibility working. (5) LOGOUT: Returns 200 and Set-Cookie with Max-Age=0 to clear cookie. GET /auth/me after logout correctly returns 401. (6) USER-SCOPED DATA VIA COOKIE: Guest creates design without auth. Register with same client_id triggers migration. GET /designs with ONLY cookie (no client_id param, no header) includes migrated 'Guest Place'. POST new design via cookie works. GET /designs includes both migrated and new designs (2 total). (7) GPX UPLOAD: POST /routes/upload with valid GPX returns complete route data (id, points, bounds, center, distance). GET /routes/{id} retrieves route. DELETE /routes/{id} returns 200. GET deleted route correctly returns 404. Cookie-based authentication fully functional with proper HttpOnly/Secure attributes and backward compatibility maintained."
 
 frontend:
   - task: "Studio + Home integration (map, geocode, designs, order)"
@@ -243,7 +257,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 3
+  test_sequence: 4
   run_ui: false
 
 test_plan:
@@ -268,3 +282,5 @@ agent_communication:
     -message: "DROPDOWN BUG FIX APPLIED: Added skipSearchRef to suppress autocomplete refetch after programmatic selection, added click-outside handler using mousedown event listener, and updated applyPlace function to close dropdown. The fix ensures dropdown closes after selecting a suggestion and when clicking outside the search box. Ready for retest."
     -agent: "testing"
     -message: "COMPREHENSIVE RETEST COMPLETE - ALL FEATURES WORKING ✅ PRIMARY BUG FIX VERIFIED: Dropdown closes after selection and stays closed, previously blocked elements now clickable, click-outside handler working. ✅ ALL FLOWS TESTED: Frame controls (terrain/streets, styles, size, orientation), Coordinates tab (lat/lng entry and navigation), GPX upload (file upload, route display, color picker, delete), Save + My Designs (save, load, delete), Order modal (opens with $249 price and PayPal iframe). External map tiles from ArcGIS fail to load (ERR_ABORTED) - this is external service issue, not app bug. NO APPLICATION ERRORS. All core functionality working correctly. Terrane app is fully functional and ready for production."
+    -agent: "testing"
+    -message: "COOKIE-BASED AUTH REGRESSION TEST COMPLETE - ALL 19 TESTS PASSED ✅ Comprehensive regression testing after switching from localStorage tokens to httpOnly cookies. (1) Register/Login: Both endpoints set Set-Cookie header with terrane_token (HttpOnly=true, Secure=true) and return token+user for backward compatibility. Validation working (409 duplicate email, 400 short password, 401 wrong password). (2) Cookie-based session: GET /auth/me works with ONLY cookie (no Authorization header). Without auth correctly returns 401. (3) Header fallback: Bearer token still works (no cookie) - backward compatibility maintained. (4) Logout: Clears cookie with Max-Age=0. (5) User-scoped data: Guest design migration working via cookie. GET/POST /designs work with cookie only. (6) GPX upload: Full CRUD working (upload/get/delete). All cookie attributes verified, session persistence tested with requests.Session(), unique credentials per run. Cookie-based authentication fully functional."
