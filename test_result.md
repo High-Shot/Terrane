@@ -221,7 +221,7 @@ backend:
 frontend:
   - task: "Studio + Home integration (map, geocode, designs, order)"
     implemented: true
-    working: "NA"
+    working: false
     file: "frontend/src/pages/Studio.jsx"
     stuck_count: 0
     priority: "high"
@@ -230,6 +230,9 @@ frontend:
         -working: "NA"
         -agent: "main"
         -comment: "Not yet tested by automation; awaiting user permission for frontend testing."
+        -working: false
+        -agent: "testing"
+        -comment: "CRITICAL BUG FOUND: Search suggestions dropdown (z-index 20) does not close after selecting a suggestion and blocks ALL UI interactions below it - cannot click quick chips (Fairhope/Lake Tahoe/Moab), cannot click Find it button, cannot click header elements. The dropdown intercepts all pointer events. Root cause: Studio.jsx lines 242-250 - suggestions dropdown has no click-outside handler and stays open permanently after appearing. WORKING FEATURES TESTED: ✅ Auth (register/login/logout) works perfectly. ✅ Search autocomplete triggers and displays suggestions correctly. ✅ Clicking a suggestion updates the map and legend (tested Lake Tahoe - map recentered, elevation shows 1047 FT). ✅ Map preview renders with 3D relief. ✅ User avatar and name display correctly after login. UNTESTED (blocked by dropdown bug): Frame controls (terrain/streets toggle, style swatches, size/orientation), GPX upload, Coordinates tab, Save/My Designs, Order modal. External: Map tiles from ArcGIS fail to load (ERR_ABORTED) but this is external service issue, not app bug."
 
 metadata:
   created_by: "main_agent"
@@ -239,10 +242,9 @@ metadata:
 
 test_plan:
   current_focus:
-    - "JWT Authentication (register/login/me)"
-    - "User-scoped designs and migration"
-    - "GPX routes storage (upload/get/delete)"
-  stuck_tasks: []
+    - "Studio + Home integration (map, geocode, designs, order)"
+  stuck_tasks:
+    - "Studio + Home integration (map, geocode, designs, order)"
   test_all: false
   test_priority: "high_first"
 
@@ -255,3 +257,5 @@ agent_communication:
     -message: "Backend testing complete. ALL 5 BACKEND ENDPOINTS WORKING CORRECTLY: ✓ Config endpoint returns correct data. ✓ Geocode endpoint correctly handles external Nominatim service (currently rate-limited but backend error handling is proper). ✓ Elevation endpoint returns correct data from Open-Meteo. ✓ Designs CRUD full round trip successful (create/list/delete/404). ✓ Orders demo flow complete (create/capture/get/404). No backend issues found. All endpoints tested with comprehensive test suite in /app/backend_test.py."
     -agent: "testing"
     -message: "JWT AUTH & USER-SCOPED DATA TESTING COMPLETE: ALL 20 TESTS PASSED ✅ Comprehensive testing of new auth and GPX features completed successfully. (1) JWT Authentication: All endpoints working - register with validation (409 for duplicate, 400 for short password), login with error handling (401 for wrong password/non-existent email), /auth/me with token validation. (2) User-scoped designs: Migration working perfectly - guest designs created with client_id are successfully migrated to user account on register/login. User's design list correctly includes both migrated and new designs. Guest client_id isolation verified. (3) GPX routes: Upload parses valid GPX and returns complete route data (points, bounds, center, distance). Non-GPX files correctly rejected with 400. GET/DELETE operations working with proper 404 handling. All backend features fully functional. Test suite: /app/backend_test.py"
+    -agent: "testing"
+    -message: "FRONTEND TESTING - CRITICAL BUG BLOCKING ALL FLOWS: ❌ Search suggestions dropdown does not close after selection and permanently blocks all UI interactions (z-index overlay issue in Studio.jsx lines 242-250). Dropdown intercepts pointer events for quick chips, Find it button, and even sticky header. ✅ WORKING: Auth (register/login/logout), search autocomplete triggers correctly, clicking suggestion updates map/legend (Lake Tahoe tested - elevation 1047 FT displayed), map preview renders, user avatar displays. ⚠️ UNTESTED (blocked by dropdown): Frame controls, GPX upload, Coordinates tab, Save/My Designs, Order modal. FIX NEEDED: Add click-outside handler to close suggestions dropdown (setSuggests([])) or reduce z-index to not block other elements."
