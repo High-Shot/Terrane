@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <gpx version="1.1" creator="Test">
+      <trk>
+        <name>Test Route</name>
+        <trkseg>
+          <trkpt lat="38.5733" lon="-109.5498"><ele>1234</ele></trkpt>
+          <trkpt lat="38.5750" lon="-109.5520"><ele>1240</ele></trkpt>
+          <trkpt lat="38.5770" lon="-109.5540"><ele>1250</ele></trkpt>
+          <trkpt lat="38.5790" lon="-109.5560"><ele>1260</ele></trkpt>
+          <trkpt lat="38.5810" lon="-109.5580"><ele>1270</ele></trkpt>
+        </trkseg>
+      </trk>
+    </gpx>

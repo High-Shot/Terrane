@@ -1,16 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Crosshair, Upload, Plus, Minus, Info, Save, ShoppingCart, X, Trash2, Check, Loader2 } from 'lucide-react';
+import { Search, Crosshair, Upload, Save, ShoppingCart, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MAP_STYLES } from '../mock/mock';
-import MapPreview from '../components/MapPreview';
 import OrderModal from '../components/OrderModal';
 import AuthModal from '../components/AuthModal';
+import PreviewPanel from '../components/studio/PreviewPanel';
+import MyDesignsDrawer from '../components/studio/MyDesignsDrawer';
+import useDesigns from '../hooks/useDesigns';
 import { api, getClientId, uploadRoute, fetchRoute } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
-
-const fmtLat = (lat) => `${Math.abs(lat).toFixed(4)} ${lat >= 0 ? 'N' : 'S'}`;
-const fmtLng = (lng) => `${Math.abs(lng).toFixed(4)} ${lng >= 0 ? 'E' : 'W'}`;
+import { fmtLat, fmtLng } from '../lib/format';
 
 const QUICK = [
   { name: 'Fairhope, Alabama', sub: 'Eastern shore, Mobile Bay', lat: 30.5230, lng: -87.9033 },
@@ -80,25 +80,17 @@ export default function Studio() {
   const [legendLine2, setLegendLine2] = useState('');
 
   const [showDesigns, setShowDesigns] = useState(false);
-  const [designs, setDesigns] = useState([]);
   const [config, setConfig] = useState({ paypal_enabled: false });
   const [orderOpen, setOrderOpen] = useState(false);
 
+  const { designs, loadDesigns, saveDesign, deleteDesign } = useDesigns(clientId, user);
+
   const activeStyle = MAP_STYLES.find((s) => s.id === style) || MAP_STYLES[0];
-  const scaleRatio = size === '12x16' ? '1 : 24,000' : '1 : 19,300';
-  const formatLabel = `${size === '12x16' ? '12" × 16"' : '16" × 20"'} ${orientation === 'portrait' ? 'PORTRAIT' : 'LANDSCAPE'}`;
-  const isPortrait = orientation === 'portrait';
 
   // Load config
   useEffect(() => {
-    api.get('/config').then((r) => setConfig(r.data)).catch(() => {});
+    api.get('/config').then((r) => setConfig(r.data)).catch((error) => console.error('Failed to load config:', error));
   }, []);
-
-  // Fetch designs when drawer opens
-  const loadDesigns = useCallback(() => {
-    api.get('/designs', { params: { client_id: clientId } }).then((r) => setDesigns(r.data)).catch(() => {});
-  }, [clientId]);
-  useEffect(() => { loadDesigns(); }, [loadDesigns, user]);
 
   // Fetch elevation whenever place coordinates change
   const fetchElevation = useCallback(async (lat, lng) => {
@@ -197,21 +189,21 @@ export default function Studio() {
     route_id: route?.id || null, route_color: routeColor,
   });
 
-  const handleSave = async () => {
-    try {
-      await api.post('/designs', currentDesign());
-      toast.success('Design saved', { description: 'Find it under My Designs.' });
-      loadDesigns();
-    } catch { toast.error('Could not save design'); }
-  };
+  const handleSave = () => saveDesign(currentDesign());
 
-  const deleteDesign = async (id) => {
-    try { await api.delete(`/designs/${id}`); setDesigns((d) => d.filter((x) => x.id !== id)); }
-    catch { toast.error('Could not delete'); }
+  const handleLoadDesign = async (d) => {
+    applyPlace({ name: d.name, sub: d.sub, lat: d.lat, lng: d.lng });
+    setMode(d.mode); setStyle(d.style); setSize(d.size); setOrientation(d.orientation);
+    setLegendName(d.name); setLegendLine2(d.sub || '');
+    if (d.route_color) setRouteColor(d.route_color);
+    if (d.route_id) {
+      try { const r = await fetchRoute(d.route_id); setRoute(r); setTab('gpx'); }
+      catch (error) { console.error('Failed to load route:', error); setRoute(null); }
+    } else {
+      setRoute(null);
+    }
+    setShowDesigns(false);
   };
-
-  const zoomIn = () => mapRef.current && mapRef.current.zoomIn();
-  const zoomOut = () => mapRef.current && mapRef.current.zoomOut();
 
   return (
     <div className="min-h-screen bg-[var(--bg-0)]">
@@ -382,106 +374,27 @@ export default function Studio() {
           </div>
         </div>
 
-        {/* RIGHT PREVIEW */}
-        <div className="lg:sticky lg:top-[88px] lg:self-start">
-          <div className="flex justify-center mb-5">
-            <div className="flex items-center gap-2 border border-[var(--line-strong)] rounded-full px-4 py-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--rust)] animate-pulse" />
-              <span className="mono-label text-[var(--cream)]">Preview relief in 3D</span>
-            </div>
-          </div>
-
-          <div className={`mx-auto relative rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-2)] shadow-[0_40px_100px_-40px_rgba(0,0,0,0.9)] ${isPortrait ? 'max-w-[520px] aspect-[3/4]' : 'max-w-[720px] aspect-[4/3]'}`}>
-            <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef}
-              routePoints={route?.points} routeColor={routeColor} routeBounds={route?.bounds} />
-            <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent 45%, rgba(11,28,41,0.92))' }} />
-
-            <div className="absolute top-4 right-4 z-[400] flex flex-col rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-0)]/80">
-              <button onClick={zoomIn} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Plus size={16} /></button>
-              <span className="h-px bg-[var(--line)]" />
-              <button onClick={zoomOut} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Minus size={16} /></button>
-            </div>
-
-            <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none z-[400]">
-              <div className="font-display font-bold text-2xl leading-tight">{legendName || place.name}</div>
-              {(legendLine2 || place.sub) && <div className="text-[var(--slate)] text-sm mt-1">{legendLine2 || place.sub}</div>}
-              <div className="font-mono text-[0.72rem] text-[var(--cream-dim)] mt-3 tracking-wide">
-                {fmtLat(place.lat)}, {fmtLng(place.lng)} &nbsp; {scaleRatio} &nbsp; USGS 3DEP · NOAA · OSM
-              </div>
-              <div className="mono-label text-[var(--rust)] mt-3">Edition 1 of 1</div>
-            </div>
-
-            <div className="absolute bottom-4 right-4 z-[400] flex items-center gap-1.5 bg-[var(--bg-0)]/85 border border-[var(--line)] rounded-full px-3 py-1.5">
-              <Info size={13} className="text-[var(--slate)]" />
-              <span className="mono-label text-[var(--slate)] !text-[0.6rem]">{mode === 'streets' ? 'OpenStreetMap' : 'USGS 3DEP, NOAA via Terrain Tiles'}</span>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-x-8 gap-y-3 justify-center">
-            {[
-              ['Center', `${fmtLat(place.lat)}, ${fmtLng(place.lng)}`],
-              ['Scale', scaleRatio],
-              ['Elev', place.elev != null ? `${place.elev} FT` : '—'],
-              ['Relief in frame', place.elev != null ? `≈${Math.round(place.elev * 1.05)} FT` : '—'],
-              ['Format', formatLabel],
-            ].map(([k, v]) => (
-              <div key={k} className="text-center">
-                <span className="mono-label text-[var(--slate-dim)]">{k} </span>
-                <span className="font-mono text-[var(--cream)] text-[0.78rem]">{v}</span>
-              </div>
-            ))}
-          </div>
-          <p className="text-center text-[var(--slate-dim)] text-xs mt-5 max-w-2xl mx-auto leading-relaxed">
-            The 3D preview exaggerates relief so it reads on screen. The final proof is rendered from survey-grade elevation data at true scale and emailed for your approval before printing.
-          </p>
-        </div>
+        <PreviewPanel
+          place={place}
+          mode={mode}
+          style={style}
+          size={size}
+          orientation={orientation}
+          legendName={legendName}
+          legendLine2={legendLine2}
+          route={route}
+          routeColor={routeColor}
+          mapRef={mapRef}
+        />
       </div>
 
-      {/* My Designs drawer */}
-      {showDesigns && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowDesigns(false)} />
-          <div className="relative w-full max-w-md bg-[var(--bg-1)] border-l border-[var(--line-strong)] h-full overflow-y-auto p-7">
-            <div className="flex items-center justify-between mb-7">
-              <h2 className="font-display font-bold text-xl">My Designs</h2>
-              <button onClick={() => setShowDesigns(false)} className="text-[var(--slate)] hover:text-[var(--cream)]"><X size={22} /></button>
-            </div>
-            {designs.length === 0 ? (
-              <div className="text-center py-20">
-                <div className="mono-label text-[var(--slate-dim)]">No saved designs yet</div>
-                <p className="text-[var(--slate)] text-sm mt-3">Frame a place and hit Save to keep it here.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {designs.map((d) => (
-                  <div key={d.id} className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] overflow-hidden">
-                    <div className="h-28 relative">
-                      <img src={d.image} alt={d.name} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, transparent, rgba(11,28,41,0.9))' }} />
-                    </div>
-                    <div className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="font-display font-bold">{d.name}</div>
-                          <div className="mono-label text-[var(--rust)] mt-1 !text-[0.6rem]">{fmtLat(d.lat)}, {fmtLng(d.lng)}</div>
-                        </div>
-                        <button onClick={() => deleteDesign(d.id)} className="text-[var(--slate)] hover:text-[var(--rust)]"><Trash2 size={16} /></button>
-                      </div>
-                      <div className="flex items-center gap-3 mt-3 text-[var(--slate)] text-xs">
-                        <span className="flex items-center gap-1"><Check size={12} className="text-[var(--rust)]" /> {d.size === '12x16' ? '12×16' : '16×20'}</span>
-                        <span>{d.orientation}</span>
-                        <span>{d.style}</span>
-                      </div>
-                      <button onClick={async () => { applyPlace({ name: d.name, sub: d.sub, lat: d.lat, lng: d.lng }); setMode(d.mode); setStyle(d.style); setSize(d.size); setOrientation(d.orientation); setLegendName(d.name); setLegendLine2(d.sub || ''); if (d.route_color) setRouteColor(d.route_color); if (d.route_id) { try { const r = await fetchRoute(d.route_id); setRoute(r); setTab('gpx'); } catch { setRoute(null); } } else { setRoute(null); } setShowDesigns(false); }}
-                        className="btn-ghost w-full mt-4 !py-2">Load in studio</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <MyDesignsDrawer
+        open={showDesigns}
+        onClose={() => setShowDesigns(false)}
+        designs={designs}
+        onDelete={deleteDesign}
+        onLoad={handleLoadDesign}
+      />
 
       <OrderModal open={orderOpen} onClose={() => { setOrderOpen(false); }} design={currentDesign()} clientId={clientId} config={config} />
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onSuccess={() => loadDesigns()} />
