@@ -631,6 +631,26 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def ensure_indexes():
+    """Create indexes on frequently-queried fields for production performance."""
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.users.create_index("id")
+        await db.designs.create_index("user_id")
+        await db.designs.create_index("client_id")
+        await db.designs.create_index("created_at")
+        await db.routes.create_index("id")
+        await db.routes.create_index("client_id")
+        await db.routes.create_index("user_id")
+        await db.orders.create_index("id")
+        await db.orders.create_index("client_id")
+        await db.orders.create_index("user_id")
+        logger.info("MongoDB indexes ensured")
+    except Exception as e:
+        logger.error(f"Failed to ensure indexes: {e}")
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
