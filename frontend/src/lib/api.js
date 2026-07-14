@@ -8,6 +8,18 @@ export const API = `${BACKEND_URL}/api`;
 // withCredentials ensures the browser sends that cookie with every request.
 export const api = axios.create({ baseURL: API, withCredentials: true });
 
+// Static hosts with an SPA fallback (e.g. Cloudflare Pages) answer unknown
+// paths — including /api/* when no backend is attached — with index.html and
+// HTTP 200. Treat any HTML reply as a failed request so callers hit their
+// normal error handling instead of rendering an HTML string as data.
+api.interceptors.response.use((response) => {
+  const type = String(response.headers?.["content-type"] || "");
+  if (type.includes("text/html")) {
+    return Promise.reject(new Error("API unavailable: got HTML instead of JSON"));
+  }
+  return response;
+});
+
 // Anonymous client id (non-sensitive guest identifier) persisted in browser
 export function getClientId() {
   let id = localStorage.getItem("terrane_client_id");
