@@ -41,7 +41,7 @@ export default function OrderModal({ open, onClose, design, clientId, config }) 
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={phase !== "processing" ? onClose : undefined} />
       <div className="relative w-full max-w-md bg-[var(--bg-1)] border border-[var(--line-strong)] rounded-sm p-7">
         {phase !== "processing" && (
-          <button onClick={onClose} className="absolute top-5 right-5 text-[var(--slate)] hover:text-[var(--cream)]"><X size={20} /></button>
+          <button onClick={onClose} className="absolute top-5 right-5 z-10 text-[var(--slate)] hover:text-[var(--cream)]"><X size={20} /></button>
         )}
 
         {phase === "done" ? (
