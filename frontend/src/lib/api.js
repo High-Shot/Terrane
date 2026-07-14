@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Unset REACT_APP_BACKEND_URL means same-origin: nginx proxies /api to the backend.
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 export const API = `${BACKEND_URL}/api`;
 
 // Cookie-based auth: the JWT lives in an httpOnly cookie set by the backend.
