@@ -1,0 +1,45 @@
+# Turnkey self-host stack for Terrane: MongoDB + FastAPI + React(nginx)
+# Usage:
+#   1) cp .env.example backend/.env   and fill in your secrets
+#   2) docker compose up -d --build
+#   3) app is served on http://<server>:80  (put Cloudflare in front for HTTPS)
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    # Not published to the host; only the backend talks to it over the internal network.
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # Loads PAYPAL_CLIENT_ID/SECRET/MODE, JWT_SECRET, CORS_ORIGINS from backend/.env
+    env_file:
+      - ./backend/.env
+    # These override whatever is in backend/.env so the container talks to the mongo service.
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      DB_NAME: terrane
+      UPLOAD_DIR: /app/uploads
+    depends_on:
+      - mongo
+    volumes:
+      - uploads_data:/app/uploads   # persist uploaded GPX files across restarts/redeploys
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Empty => the SPA calls the API at the same origin (/api), which nginx proxies.
+        REACT_APP_BACKEND_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"   # change to "8080:80" if a host web server already uses port 80
+
+volumes:
+  mongo_data:
+  uploads_data:

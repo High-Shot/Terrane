@@ -52,6 +52,14 @@ __pycache__/
 venv/
 .venv/
 
+# Environment secrets (NEVER commit — contains live PayPal secret, JWT secret, DB creds)
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+backend/uploads/
+
 # Development tools
 chainlit.md
 .chainlit
