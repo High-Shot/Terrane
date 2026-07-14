@@ -9,7 +9,8 @@ you only expose one web port and front it with Cloudflare for HTTPS.
 ```bash
 # 1. Provide secrets
 cp .env.example backend/.env
-#    edit backend/.env: set JWT_SECRET, PAYPAL_CLIENT_ID/SECRET, PAYPAL_MODE=live
+#    edit backend/.env: set JWT_SECRET (openssl rand -hex 32),
+#    PAYPAL_CLIENT_ID/SECRET, PAYPAL_MODE=live
 #    (MONGO_URL/DB_NAME are auto-set by compose to the bundled mongo service)
 
 # 2. Build & run

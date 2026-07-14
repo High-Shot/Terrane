@@ -49,6 +49,12 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+if JWT_SECRET == 'dev-secret-change-me':
+    logger.warning(
+        "SECURITY: JWT_SECRET is not set — using the insecure development default. "
+        "Set JWT_SECRET in backend/.env before serving real users (see .env.example)."
+    )
+
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -622,10 +628,21 @@ async def get_order(order_id: str):
 
 app.include_router(api_router)
 
+# Browsers only need CORS here when the frontend is served from a different
+# origin than the API (in production nginx serves both from one origin).
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        'CORS_ORIGINS',
+        'https://terranemaps.com,https://www.terranemaps.com,http://localhost:3000',
+    ).split(',')
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origin_regex=".*",
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
