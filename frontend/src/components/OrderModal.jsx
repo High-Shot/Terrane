@@ -1,19 +1,85 @@
-import React, { useState } from "react";
-import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
-import { X, Check, Loader2, ShieldCheck } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from "@paypal/react-paypal-js";
+import { X, Check, Loader2, ShieldCheck, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
+
+const SUPPORT_EMAIL = "contact@terranemaps.com";
+
+// A never-a-dead-end fallback: whenever secure checkout can't be shown, the
+// customer still gets a clear explanation and a way to complete their order.
+function CheckoutUnavailable({ title, detail, onRetry }) {
+  return (
+    <div className="rounded-sm border border-[var(--line-strong)] bg-[var(--bg-0)] p-4 text-center">
+      <AlertTriangle size={18} className="text-[var(--rust)] mx-auto" />
+      <div className="text-[var(--cream)] text-sm font-medium mt-2">{title}</div>
+      <p className="text-[var(--slate)] text-xs mt-1.5 leading-relaxed">{detail}</p>
+      <div className="flex flex-col gap-2 mt-4">
+        {onRetry && <button onClick={onRetry} className="btn-rust w-full">Try again</button>}
+        <a href={`mailto:${SUPPORT_EMAIL}?subject=Help completing my Terrane order`} className="btn-ghost w-full">
+          Email us to finish your order
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// Renders the PayPal buttons without ever stranding the customer. The PayPal
+// SDK can render nothing in three situations — still loading, failed to load,
+// or the buyer is ineligible — each of which is handled here explicitly:
+//   - loading  -> a spinner (isPending)
+//   - rejected -> a retry + contact fallback (isRejected)
+//   - ineligible -> a contact fallback (passed as PayPalButtons children,
+//                   which the SDK renders only when the button is ineligible)
+function PayPalCheckout({ onCreateOrder, onApproved, onError, onRetry }) {
+  const [{ isPending, isRejected }] = usePayPalScriptReducer();
+
+  if (isRejected) {
+    return (
+      <CheckoutUnavailable
+        title="Couldn't load secure checkout"
+        detail="PayPal didn't load — an ad blocker, browser extension, or network hiccup can cause this. Try again, or email us and we'll send a secure payment link."
+        onRetry={onRetry}
+      />
+    );
+  }
+
+  return (
+    <div className="relative min-h-[3rem]">
+      {isPending && (
+        <div className="flex items-center justify-center gap-2 py-4 text-[var(--slate)]">
+          <Loader2 className="animate-spin" size={18} /> Loading secure checkout…
+        </div>
+      )}
+      <PayPalButtons
+        style={{ layout: "vertical", color: "gold", shape: "rect", label: "paypal" }}
+        createOrder={onCreateOrder}
+        onApprove={onApproved}
+        onError={onError}
+      >
+        <CheckoutUnavailable
+          title="PayPal checkout isn't available"
+          detail="We can't show PayPal checkout for this order right now. Email us and we'll help you complete your purchase."
+        />
+      </PayPalButtons>
+    </div>
+  );
+}
 
 export default function OrderModal({ open, onClose, design, clientId, config }) {
   const [phase, setPhase] = useState("review"); // review | processing | done
   const [orderRef, setOrderRef] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0); // bump to remount the PayPal SDK on retry
+  const createdOrderId = useRef(null); // survives the PayPal button's stale render closures
   const paypalEnabled = config?.paypal_enabled;
+  const paypalClientId = config?.paypal_client_id;
 
   if (!open) return null;
 
   const createBackendOrder = async () => {
     const { data } = await api.post("/orders", { client_id: clientId, design });
     setOrderRef(data);
+    createdOrderId.current = data.order_id;
     return data;
   };
 
@@ -32,6 +98,22 @@ export default function OrderModal({ open, onClose, design, clientId, config }) 
       toast.error("Could not place order");
       setPhase("review");
     }
+  };
+
+  const handlePayPalApprove = async (data) => {
+    try {
+      setPhase("processing");
+      await captureBackendOrder(createdOrderId.current, data.orderID);
+      setPhase("done");
+    } catch (e) {
+      toast.error("We couldn't confirm your payment — please email us before trying again.");
+      setPhase("review");
+    }
+  };
+
+  const handlePayPalError = () => {
+    toast.error("PayPal checkout hit an error");
+    setPhase("review");
   };
 
   const sizeLabel = design.size === "12x16" ? '12" × 16"' : '16" × 20"';
@@ -80,22 +162,25 @@ export default function OrderModal({ open, onClose, design, clientId, config }) 
                 <div className="flex items-center justify-center gap-2 py-4 text-[var(--cream)]">
                   <Loader2 className="animate-spin" size={18} /> Processing…
                 </div>
-              ) : paypalEnabled ? (
-                <PayPalScriptProvider options={{ clientId: config.paypal_client_id, currency: "USD" }}>
-                  <PayPalButtons
-                    style={{ layout: "vertical", color: "gold", shape: "rect", label: "paypal" }}
-                    createOrder={async () => {
+              ) : paypalEnabled && paypalClientId ? (
+                <PayPalScriptProvider key={reloadKey} options={{ clientId: paypalClientId, currency: "USD" }}>
+                  <PayPalCheckout
+                    onCreateOrder={async () => {
                       const order = await createBackendOrder();
                       return order.paypal_order_id;
                     }}
-                    onApprove={async (data) => {
-                      setPhase("processing");
-                      await captureBackendOrder(orderRef.order_id, data.orderID);
-                      setPhase("done");
-                    }}
-                    onError={() => { toast.error("PayPal error"); setPhase("review"); }}
+                    onApproved={handlePayPalApprove}
+                    onError={handlePayPalError}
+                    onRetry={() => setReloadKey((k) => k + 1)}
                   />
                 </PayPalScriptProvider>
+              ) : paypalEnabled ? (
+                // Enabled server-side but no client id reached the browser — a
+                // misconfiguration. Never silently strand the customer.
+                <CheckoutUnavailable
+                  title="Checkout is temporarily unavailable"
+                  detail="We couldn't start secure checkout. Email us and we'll send you a payment link right away."
+                />
               ) : (
                 <>
                   <button onClick={handleDemoPay} className="btn-rust w-full">Pay $249 · Demo checkout</button>
