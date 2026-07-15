@@ -4,6 +4,10 @@ This app is a React frontend + FastAPI backend + MongoDB. The frontend calls the
 at `/api` on the **same origin**, and nginx reverse-proxies `/api` to the backend — so
 you only expose one web port and front it with Cloudflare for HTTPS.
 
+> Hosting it on a spare computer at home instead of a rented server? See
+> [LAPTOP-SETUP.md](LAPTOP-SETUP.md) — same stack, fronted by a free Cloudflare
+> Tunnel (no port forwarding, home IP stays hidden).
+
 ## Option A — Docker Compose (recommended, turnkey)
 
 ```bash
