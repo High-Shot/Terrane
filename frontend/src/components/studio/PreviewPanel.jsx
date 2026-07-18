@@ -6,7 +6,7 @@ import { fmtLat, fmtLng, printScaleLabel, formatSizeLabel } from '../../lib/form
 // weighs down the marketing pages, which don't render the studio.
 const MapPreview = React.lazy(() => import('../MapPreview'));
 
-export default function PreviewPanel({ place, mode, style, legendName, legendLine2, route, routeColor, mapRef, frame, onFrameChange }) {
+export default function PreviewPanel({ place, mode, themeId, layers, legendName, legendLine2, route, routeColor, mapRef, frame, onFrameChange }) {
   const [mapHealth, setMapHealth] = useState('loading'); // loading | ok | no-tiles
   const scaleLabel = printScaleLabel(frame?.bounds);
   const zoomIn = () => mapRef.current && mapRef.current.zoomIn();
@@ -34,7 +34,7 @@ export default function PreviewPanel({ place, mode, style, legendName, legendLin
             <Loader2 size={22} className="animate-spin text-[var(--rust)]" />
           </div>
         }>
-          <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef}
+          <MapPreview lat={place.lat} lng={place.lng} mode={mode} themeId={themeId} layers={layers} mapRef={mapRef}
             routePoints={route?.points} routeColor={routeColor} routeBounds={route?.bounds}
             onFrameChange={onFrameChange} onHealth={setMapHealth} />
         </Suspense>

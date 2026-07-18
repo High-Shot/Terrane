@@ -107,6 +107,10 @@ class Design(BaseModel):
     bearing: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
+    theme: Optional[str] = None
+    layers: Optional[Any] = None
+    distance_m: Optional[float] = None
+    dms: Optional[bool] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -128,6 +132,10 @@ class DesignCreate(BaseModel):
     bearing: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
+    theme: Optional[str] = None
+    layers: Optional[Any] = None
+    distance_m: Optional[float] = None
+    dms: Optional[bool] = None
 
 
 class OrderCreate(BaseModel):
