@@ -22,7 +22,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // With no key configured, the studio stays on the verified relief raster
 // base below. Set REACT_APP_MAPTILER_KEY at build time to enable vector
 // themes; the tile-verified auto-revert still guards every upgrade.
-const MAPTILER_KEY = (process.env.REACT_APP_MAPTILER_KEY || "").trim();
+// Publishable client-side key (it is embedded in the built bundle by design).
+// Restrict its allowed origins in the MapTiler dashboard to your domains.
+// REACT_APP_MAPTILER_KEY at build time overrides this default.
+const MAPTILER_KEY = (process.env.REACT_APP_MAPTILER_KEY || "3l96vQ4Q6inNV9l6O9uw").trim();
 const VECTOR_UPGRADE_ENABLED = MAPTILER_KEY.length > 0;
 const VECTOR_STYLE_URLS = {
   harbor: `https://api.maptiler.com/maps/outdoor-v2/style.json?key=${MAPTILER_KEY}`,
