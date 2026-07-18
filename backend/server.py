@@ -41,6 +41,10 @@ PAYPAL_ENABLED = bool(PAYPAL_CLIENT_ID and PAYPAL_SECRET)
 
 MAP_PRICE = 249.00
 
+# Guard against silently recording $0 "demo" orders in production. Demo checkout
+# (used when no PayPal keys are set) is only allowed when explicitly enabled.
+ALLOW_DEMO_CHECKOUT = os.environ.get('ALLOW_DEMO_CHECKOUT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Email config (generic SMTP so any provider works via env). Leave SMTP_HOST
 # blank to disable email — build requests are still saved regardless.
 SMTP_HOST = os.environ.get('SMTP_HOST', '').strip()
@@ -50,6 +54,7 @@ SMTP_PASS = os.environ.get('SMTP_PASS', '').strip()
 SMTP_FROM = os.environ.get('SMTP_FROM', SMTP_USER).strip()
 SMTP_STARTTLS = os.environ.get('SMTP_STARTTLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 PROOF_NOTIFY_EMAIL = os.environ.get('PROOF_NOTIFY_EMAIL', '').strip()
+CONTACT_NOTIFY_EMAIL = os.environ.get('CONTACT_NOTIFY_EMAIL', '').strip()
 ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()]
 EMAIL_ENABLED = bool(SMTP_HOST and SMTP_FROM)
 
@@ -132,6 +137,13 @@ class BuildRequestCreate(BaseModel):
     email: EmailStr
     message: Optional[str] = ""
     design: Dict[str, Any]
+
+
+class ContactCreate(BaseModel):
+    name: str
+    email: EmailStr
+    message: str
+    client_id: Optional[str] = None
 
 
 class CaptureBody(BaseModel):
@@ -587,10 +599,20 @@ async def list_designs(client_id: Optional[str] = Query(None), user=Depends(get_
 
 
 @api_router.delete("/designs/{design_id}")
-async def delete_design(design_id: str):
-    res = await db.designs.delete_one({"id": design_id})
-    if res.deleted_count == 0:
+async def delete_design(design_id: str, client_id: Optional[str] = Query(None), user=Depends(get_optional_user)):
+    doc = await db.designs.find_one({"id": design_id})
+    if not doc:
         raise HTTPException(status_code=404, detail="Design not found")
+    # Ownership check: a user-owned design requires the matching signed-in user;
+    # a guest design requires the matching client_id. Prevents deleting others' designs.
+    owner_uid = doc.get("user_id")
+    authorized = (
+        (owner_uid is not None and user is not None and user.get("id") == owner_uid)
+        or (owner_uid is None and client_id is not None and client_id == doc.get("client_id"))
+    )
+    if not authorized:
+        raise HTTPException(status_code=403, detail="You can only delete your own designs")
+    await db.designs.delete_one({"id": design_id})
     return {"ok": True}
 
 
@@ -611,6 +633,9 @@ async def create_order(payload: OrderCreate, user=Depends(get_optional_user)):
         base["user_id"] = user["id"]
 
     if not PAYPAL_ENABLED:
+        if not ALLOW_DEMO_CHECKOUT:
+            # Never silently record a $0 "captured" order when payments aren't configured.
+            raise HTTPException(status_code=503, detail="Checkout is not available right now. Please contact us to complete your order.")
         base["demo"] = True
         base["paypal_order_id"] = None
         await db.orders.insert_one(base)
@@ -765,6 +790,49 @@ async def admin_build_requests(user=Depends(require_user)):
     return docs
 
 
+# ----------------------------- Contact -----------------------------
+@api_router.post("/contact")
+async def create_contact(payload: ContactCreate, user=Depends(get_optional_user)):
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Please include a message")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name.strip(),
+        "email": payload.email.lower().strip(),
+        "message": payload.message.strip(),
+        "client_id": payload.client_id,
+        "created_at": now_iso(),
+    }
+    if user:
+        doc["user_id"] = user["id"]
+    await db.contacts.insert_one(doc)
+
+    # Best-effort notification — the message is already persisted regardless.
+    try:
+        dest = CONTACT_NOTIFY_EMAIL or PROOF_NOTIFY_EMAIL
+        if dest:
+            body = (
+                f"From: {doc['name']} <{doc['email']}>\n\n"
+                f"{doc['message']}\n\n"
+                f"Ref: {doc['id'][:8]}"
+            )
+            await send_email(dest, f"Contact form — {doc['name']}", body)
+    except Exception as e:
+        logger.error(f"contact email failed: {e}")
+
+    return {"ok": True}
+
+
+@api_router.get("/admin/contacts")
+async def admin_contacts(user=Depends(require_user)):
+    if user.get("email", "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admins only")
+    docs = await db.contacts.find().sort("created_at", -1).to_list(200)
+    for d in docs:
+        d.pop("_id", None)
+    return docs
+
+
 app.include_router(api_router)
 
 # Browsers only need CORS here when the frontend is served from a different
@@ -806,6 +874,7 @@ async def ensure_indexes():
         await db.build_requests.create_index("client_id")
         await db.build_requests.create_index("user_id")
         await db.build_requests.create_index("status")
+        await db.contacts.create_index("created_at")
         logger.info("MongoDB indexes ensured")
     except Exception as e:
         logger.error(f"Failed to ensure indexes: {e}")

@@ -28,13 +28,15 @@ export default function useDesigns(clientId, user) {
 
   const deleteDesign = useCallback(async (id) => {
     try {
-      await api.delete(`/designs/${id}`);
+      // Send client_id so the backend can authorize deletes of guest-owned
+      // designs; signed-in users are authorized via their auth cookie.
+      await api.delete(`/designs/${id}`, { params: { client_id: clientId } });
       setDesigns((d) => d.filter((x) => x.id !== id));
     } catch (error) {
       console.error('Failed to delete design:', error);
       toast.error('Could not delete');
     }
-  }, []);
+  }, [clientId]);
 
   return { designs, loadDesigns, saveDesign, deleteDesign };
 }

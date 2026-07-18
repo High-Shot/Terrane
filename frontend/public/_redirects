@@ -1,0 +1,4 @@
+# Cloudflare Pages SPA fallback: serve the app shell for client-side routes
+# (e.g. /studio, /about, /faq) so deep links and refreshes don't 404.
+# Static assets are served first; only unmatched paths hit this rule.
+/*    /index.html    200

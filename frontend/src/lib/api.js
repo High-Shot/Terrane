@@ -54,3 +54,9 @@ export async function submitBuildRequest(payload) {
   const { data } = await api.post('/build-requests', payload);
   return data;
 }
+
+// Send a contact-form message. Persisted server-side and emailed best-effort.
+export async function submitContact(payload) {
+  const { data } = await api.post('/contact', payload);
+  return data;
+}
