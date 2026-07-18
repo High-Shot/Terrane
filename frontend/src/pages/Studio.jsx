@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Crosshair, Upload, Save, ShoppingCart, Trash2, Loader2 } from 'lucide-react';
+import { Search, Crosshair, Upload, Save, Hammer, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MAP_STYLES } from '../mock/mock';
-import OrderModal from '../components/OrderModal';
+import BuildRequestModal from '../components/BuildRequestModal';
 import AuthModal from '../components/AuthModal';
 import PreviewPanel from '../components/studio/PreviewPanel';
 import MyDesignsDrawer from '../components/studio/MyDesignsDrawer';
@@ -17,6 +17,10 @@ const QUICK = [
   { name: 'Lake Tahoe', sub: 'Sierra Nevada', lat: 39.0968, lng: -120.0324 },
   { name: 'Moab, Utah', sub: 'Colorado Plateau', lat: 38.5733, lng: -109.5498 },
 ];
+
+// The product is a single 8" × 8" square relief map.
+const SIZE = '8x8';
+const ORIENTATION = 'square';
 
 const Logo = () => (
   <Link to="/" className="flex items-center gap-3">
@@ -73,24 +77,17 @@ export default function Studio() {
 
   const [mode, setMode] = useState('relief');
   const [style, setStyle] = useState('harbor');
-  const [size, setSize] = useState('12x16');
-  const [orientation, setOrientation] = useState('portrait');
+  const [frame, setFrame] = useState(null); // { bounds, zoom, center } — the exact framed view
 
   const [legendName, setLegendName] = useState('Fairhope, Alabama');
   const [legendLine2, setLegendLine2] = useState('');
 
   const [showDesigns, setShowDesigns] = useState(false);
-  const [config, setConfig] = useState({ paypal_enabled: false });
-  const [orderOpen, setOrderOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
 
   const { designs, loadDesigns, saveDesign, deleteDesign } = useDesigns(clientId, user);
 
   const activeStyle = MAP_STYLES.find((s) => s.id === style) || MAP_STYLES[0];
-
-  // Load config
-  useEffect(() => {
-    api.get('/config').then((r) => setConfig(r.data)).catch((error) => console.error('Failed to load config:', error));
-  }, []);
 
   // Fetch elevation whenever place coordinates change
   const fetchElevation = useCallback(async (lat, lng) => {
@@ -185,7 +182,8 @@ export default function Studio() {
 
   const currentDesign = () => ({
     client_id: clientId, name: legendName || place.name, sub: legendLine2 || place.sub,
-    lat: place.lat, lng: place.lng, mode, style, size, orientation, elev: place.elev, image: activeStyle.img,
+    lat: place.lat, lng: place.lng, mode, style, size: SIZE, orientation: ORIENTATION, elev: place.elev, image: activeStyle.img,
+    bbox: frame?.bounds ?? null, zoom: frame?.zoom ?? null,
     route_id: route?.id || null, route_color: routeColor,
   });
 
@@ -193,7 +191,7 @@ export default function Studio() {
 
   const handleLoadDesign = async (d) => {
     applyPlace({ name: d.name, sub: d.sub, lat: d.lat, lng: d.lng });
-    setMode(d.mode); setStyle(d.style); setSize(d.size); setOrientation(d.orientation);
+    setMode(d.mode); setStyle(d.style);
     setLegendName(d.name); setLegendLine2(d.sub || '');
     if (d.route_color) setRouteColor(d.route_color);
     if (d.route_id) {
@@ -345,9 +343,7 @@ export default function Studio() {
                 </button>
               ))}
             </div>
-            <div className="mt-4"><Segmented value={size} onChange={setSize} options={[{ label: '12" × 16"', value: '12x16' }, { label: '16" × 20"', value: '16x20' }]} /></div>
-            <div className="mt-3"><Segmented value={orientation} onChange={setOrientation} options={[{ label: 'Portrait', value: 'portrait' }, { label: 'Landscape', value: 'landscape' }]} /></div>
-            <p className="text-[var(--slate)] text-xs mt-4">Pan and zoom the preview to set your crop. What you frame is what we build.</p>
+            <p className="text-[var(--slate)] text-xs mt-4">Pan and zoom the preview to set your crop. What you frame is what we build — a single 8" × 8" relief map.</p>
           </div>
 
           {/* 03 LEGEND */}
@@ -360,15 +356,15 @@ export default function Studio() {
               className="w-full mt-3 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] text-sm focus:outline-none focus:border-[var(--rust)] transition-colors" />
           </div>
 
-          {/* 04 SAVE / ORDER */}
+          {/* 04 SAVE / BUILD */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
-            <SectionTitle n="04" title="Save or order" />
+            <SectionTitle n="04" title="Save or build" />
             <div className="grid grid-cols-2 gap-3">
               <button onClick={handleSave} className="btn-ghost flex items-center justify-center gap-2"><Save size={15} /> Save</button>
-              <button onClick={() => setOrderOpen(true)} className="btn-rust flex items-center justify-center gap-2"><ShoppingCart size={15} /> Order · $249</button>
+              <button onClick={() => setBuildOpen(true)} className="btn-rust flex items-center justify-center gap-2"><Hammer size={15} /> Build my map</button>
             </div>
             <div className="mt-5 space-y-2">
-              <div className="mono-label text-[var(--slate-dim)]">Edition 1 of 1 · Your file is never resold</div>
+              <div className="mono-label text-[var(--slate-dim)]">No upfront payment · $249, only after you approve</div>
               <div className="mono-label text-[var(--slate-dim)]">Final proof emailed before anything prints</div>
             </div>
           </div>
@@ -378,13 +374,13 @@ export default function Studio() {
           place={place}
           mode={mode}
           style={style}
-          size={size}
-          orientation={orientation}
           legendName={legendName}
           legendLine2={legendLine2}
           route={route}
           routeColor={routeColor}
           mapRef={mapRef}
+          frame={frame}
+          onFrameChange={setFrame}
         />
       </div>
 
@@ -396,7 +392,7 @@ export default function Studio() {
         onLoad={handleLoadDesign}
       />
 
-      <OrderModal open={orderOpen} onClose={() => { setOrderOpen(false); }} design={currentDesign()} clientId={clientId} config={config} />
+      <BuildRequestModal open={buildOpen} onClose={() => setBuildOpen(false)} design={currentDesign()} clientId={clientId} />
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onSuccess={() => loadDesigns()} />
     </div>
   );

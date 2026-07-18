@@ -67,14 +67,13 @@ export const SAMPLE_LEGEND = {
 
 export const STEPS = [
   { n: '01', title: 'Point to your place', body: 'Search an address or city, enter coordinates, or upload a GPX file. If you can point to it, we can build it.' },
-  { n: '02', title: 'Frame it', body: 'Set the crop, orientation, and size. The legend updates live as you move: coordinates, scale, the works.' },
+  { n: '02', title: 'Frame it', body: 'Set the crop and how tight you zoom. The legend updates live as you move — coordinates and scale.' },
   { n: '03', title: 'Approve the proof', body: 'We build the final render from survey data and email it to you before anything prints. No surprise mountains.' },
   { n: '04', title: 'We print it once', body: 'Your map is built layer by layer, inspected, mounted, and shipped. Edition 1 of 1, and it stays that way.' },
 ];
 
 export const SIZES = [
-  { size: '12" \u00d7 16"', desc: 'The desk-to-wall size. Right for a single neighborhood, a stretch of shoreline, or the dock you learned to fish from.', price: '$249' },
-  { size: '16" \u00d7 20"', desc: 'The statement size. Room for a whole town, a bay, or a route with the terrain that earned it.', price: '$249' },
+  { size: '8" \u00d7 8"', desc: 'One square foot of the place that matters, built to order. Eight inches on a side, printed in relief from real elevation data, mounted and ready to hang. Big enough for a neighborhood, a stretch of shoreline, or the trailhead you keep coming back to \u2014 small enough to live anywhere on the wall.', price: '$249' },
 ];
 
 // Studio map styles with representative preview textures

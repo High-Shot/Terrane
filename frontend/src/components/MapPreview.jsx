@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { MapContainer, TileLayer, useMap, Polyline, CircleMarker } from "react-leaflet";
+import { MapContainer, TileLayer, useMap, useMapEvents, Polyline, CircleMarker } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 // Tile source config by (mode, style)
@@ -36,6 +36,32 @@ const OVERLAY = {
   basalt: "linear-gradient(160deg, rgba(0,0,0,0.35), rgba(11,28,41,0.55))",
 };
 
+// Reports the exact framed view (bounds + zoom + center) up to the studio,
+// on every pan/zoom and once on mount, so a build request captures precisely
+// what the customer is looking at.
+function FrameReporter({ onFrameChange }) {
+  const emit = (map) => {
+    if (!onFrameChange) return;
+    const b = map.getBounds();
+    const c = map.getCenter();
+    onFrameChange({
+      bounds: [[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]],
+      zoom: map.getZoom(),
+      center: [c.lat, c.lng],
+    });
+  };
+  const map = useMapEvents({
+    moveend: () => emit(map),
+    zoomend: () => emit(map),
+  });
+  useEffect(() => {
+    emit(map);
+    // Emit once on mount; emit is stable enough for this one-shot report.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map]);
+  return null;
+}
+
 function Recenter({ lat, lng, routeBounds }) {
   const map = useMap();
   useEffect(() => {
@@ -48,7 +74,7 @@ function Recenter({ lat, lng, routeBounds }) {
   return null;
 }
 
-export default function MapPreview({ lat, lng, mode, style, mapRef, routePoints, routeColor = "#cd7b41", routeBounds }) {
+export default function MapPreview({ lat, lng, mode, style, mapRef, routePoints, routeColor = "#cd7b41", routeBounds, onFrameChange }) {
   const config = mode === "streets" ? TILES.streets : (TILES.relief[style] || TILES.relief.harbor);
   const overlay = mode === "streets" ? "linear-gradient(160deg, rgba(14,34,49,0.15), rgba(11,28,41,0.35))" : (OVERLAY[style] || OVERLAY.harbor);
   const hasRoute = Array.isArray(routePoints) && routePoints.length > 1;
@@ -74,6 +100,7 @@ export default function MapPreview({ lat, lng, mode, style, mapRef, routePoints,
           </>
         )}
         <Recenter lat={lat} lng={lng} routeBounds={routeBounds} />
+        <FrameReporter onFrameChange={onFrameChange} />
       </MapContainer>
       <div className="absolute inset-0 pointer-events-none" style={{ background: overlay }} />
     </div>

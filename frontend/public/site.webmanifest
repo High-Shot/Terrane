@@ -1,0 +1,16 @@
+{
+    "name": "Terrane",
+    "short_name": "Terrane",
+    "description": "Terrane — custom 3D-printed terrain maps of the places that matter to you. Design yours in the studio.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0b1c29",
+    "theme_color": "#0b1c29",
+    "icons": [
+        {
+            "src": "/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml"
+        }
+    ]
+}

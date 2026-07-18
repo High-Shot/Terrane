@@ -34,8 +34,7 @@ export default function MyDesignsDrawer({ open, onClose, designs, onDelete, onLo
                     <button onClick={() => onDelete(d.id)} className="text-[var(--slate)] hover:text-[var(--rust)]"><Trash2 size={16} /></button>
                   </div>
                   <div className="flex items-center gap-3 mt-3 text-[var(--slate)] text-xs">
-                    <span className="flex items-center gap-1"><Check size={12} className="text-[var(--rust)]" /> {d.size === '12x16' ? '12\u00d716' : '16\u00d720'}</span>
-                    <span>{d.orientation}</span>
+                    <span className="flex items-center gap-1"><Check size={12} className="text-[var(--rust)]" /> {d.size === '8x8' ? '8\u00d78' : d.size}</span>
                     <span>{d.style}</span>
                   </div>
                   <button onClick={() => onLoad(d)} className="btn-ghost w-full mt-4 !py-2">Load in studio</button>

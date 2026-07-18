@@ -48,3 +48,9 @@ export async function fetchRoute(routeId) {
   const { data } = await api.get(`/routes/${routeId}`);
   return data;
 }
+
+// Submit a build request (intent capture — no upfront payment).
+export async function submitBuildRequest(payload) {
+  const { data } = await api.post('/build-requests', payload);
+  return data;
+}

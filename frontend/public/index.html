@@ -22,6 +22,71 @@
         Learn how to configure a non-root public URL by running `npm run build`.
         -->
         <title>Terrane — Maps for Places That Matter</title>
+
+        <!-- Canonical -->
+        <link rel="canonical" href="https://www.terranemaps.com/" />
+
+        <!-- Open Graph -->
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Terrane" />
+        <meta property="og:title" content="Terrane — Maps for Places That Matter" />
+        <meta property="og:description" content="Terrane — custom 3D-printed terrain maps of the places that matter to you. Design yours in the studio." />
+        <meta property="og:url" content="https://www.terranemaps.com/" />
+        <!--
+        NOTE: og-image is currently an SVG because Pillow was unavailable to render a PNG at build time.
+        A 1200×630 PNG (og-image.png) is preferred for reliable previews on Slack, Twitter/X, and iMessage,
+        which do not always render SVG open-graph images. Replace og-image.svg with a branded og-image.png
+        and update the og:image / twitter:image references below when the owner provides brand media.
+        -->
+        <meta property="og:image" content="https://www.terranemaps.com/og-image.svg" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="Terrane 3D-printed relief map" />
+
+        <!-- Twitter -->
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Terrane — Maps for Places That Matter" />
+        <meta name="twitter:description" content="Terrane — custom 3D-printed terrain maps of the places that matter to you. Design yours in the studio." />
+        <meta name="twitter:image" content="https://www.terranemaps.com/og-image.svg" />
+
+        <!-- Icons -->
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="manifest" href="/site.webmanifest" />
+        <meta name="apple-mobile-web-app-title" content="Terrane" />
+
+        <!-- Structured data -->
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "Organization",
+                    "name": "Terrane",
+                    "url": "https://www.terranemaps.com/",
+                    "logo": "https://www.terranemaps.com/favicon.svg",
+                    "description": "Terrane — custom 3D-printed terrain maps of the places that matter to you. Design yours in the studio."
+                },
+                {
+                    "@type": "Product",
+                    "name": "Custom 3D-Printed Relief Map — 8×8\"",
+                    "description": "A custom 3D-printed topographic relief map of the place that matters to you, designed in the Terrane studio.",
+                    "brand": {
+                        "@type": "Brand",
+                        "name": "Terrane"
+                    },
+                    "offers": {
+                        "@type": "Offer",
+                        "url": "https://www.terranemaps.com/studio",
+                        "priceCurrency": "USD",
+                        "price": "249",
+                        "availability": "https://schema.org/MadeToOrder"
+                    }
+                }
+            ]
+        }
+        </script>
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>

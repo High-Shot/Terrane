@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Any, Dict
 import uuid
 import math
+import smtplib
+import asyncio
 import xml.etree.ElementTree as ET
+from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
 import httpx
 import bcrypt
@@ -37,6 +40,18 @@ PAYPAL_BASE = 'https://api-m.paypal.com' if PAYPAL_MODE == 'live' else 'https://
 PAYPAL_ENABLED = bool(PAYPAL_CLIENT_ID and PAYPAL_SECRET)
 
 MAP_PRICE = 249.00
+
+# Email config (generic SMTP so any provider works via env). Leave SMTP_HOST
+# blank to disable email — build requests are still saved regardless.
+SMTP_HOST = os.environ.get('SMTP_HOST', '').strip()
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587').strip() or '587')
+SMTP_USER = os.environ.get('SMTP_USER', '').strip()
+SMTP_PASS = os.environ.get('SMTP_PASS', '').strip()
+SMTP_FROM = os.environ.get('SMTP_FROM', SMTP_USER).strip()
+SMTP_STARTTLS = os.environ.get('SMTP_STARTTLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+PROOF_NOTIFY_EMAIL = os.environ.get('PROOF_NOTIFY_EMAIL', '').strip()
+ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()]
+EMAIL_ENABLED = bool(SMTP_HOST and SMTP_FROM)
 
 # Auth config
 JWT_SECRET = os.environ.get('JWT_SECRET', 'dev-secret-change-me')
@@ -77,10 +92,12 @@ class Design(BaseModel):
     lng: float
     mode: str = "relief"
     style: str = "harbor"
-    size: str = "12x16"
-    orientation: str = "portrait"
+    size: str = "8x8"
+    orientation: str = "square"
     elev: Optional[float] = None
     image: Optional[str] = ""
+    bbox: Optional[Any] = None
+    zoom: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
     created_at: str = Field(default_factory=now_iso)
@@ -94,16 +111,26 @@ class DesignCreate(BaseModel):
     lng: float
     mode: str = "relief"
     style: str = "harbor"
-    size: str = "12x16"
-    orientation: str = "portrait"
+    size: str = "8x8"
+    orientation: str = "square"
     elev: Optional[float] = None
     image: Optional[str] = ""
+    bbox: Optional[Any] = None
+    zoom: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
 
 
 class OrderCreate(BaseModel):
     client_id: str
+    design: Dict[str, Any]
+
+
+class BuildRequestCreate(BaseModel):
+    client_id: str
+    name: str
+    email: EmailStr
+    message: Optional[str] = ""
     design: Dict[str, Any]
 
 
@@ -217,6 +244,36 @@ async def paypal_token() -> str:
         )
         r.raise_for_status()
         return r.json()["access_token"]
+
+
+# ----------------------------- Email (best-effort, provider-agnostic SMTP) -----------------------------
+def _send_email_sync(to: str, subject: str, body: str) -> None:
+    """Blocking SMTP send. Raises on failure; callers wrap in try/except."""
+    msg = EmailMessage()
+    msg["From"] = SMTP_FROM
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.set_content(body)
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+        if SMTP_STARTTLS:
+            s.starttls()
+        if SMTP_USER and SMTP_PASS:
+            s.login(SMTP_USER, SMTP_PASS)
+        s.send_message(msg)
+
+
+async def send_email(to: str, subject: str, body: str) -> bool:
+    """Best-effort email. Returns False (and logs) when disabled or on error;
+    never raises so callers can treat email as non-critical."""
+    if not EMAIL_ENABLED or not to:
+        logger.info(f"[email disabled] would send to={to!r} subject={subject!r}")
+        return False
+    try:
+        await asyncio.to_thread(_send_email_sync, to, subject, body)
+        return True
+    except Exception as e:
+        logger.error(f"email send failed to={to!r}: {e}")
+        return False
 
 
 def _haversine_km(a, b):
@@ -626,6 +683,88 @@ async def get_order(order_id: str):
     return order
 
 
+# ----------------------------- Build requests (intent capture, no upfront payment) -----------------------------
+def _build_request_summary(doc: dict) -> str:
+    """Human-readable summary of a build request for the owner notification."""
+    d = doc.get("design") or {}
+    lat, lng = d.get("lat"), d.get("lng")
+    lines = [
+        f"Place: {d.get('name', '(unnamed)')}",
+        f"Sub:   {d.get('sub', '')}",
+        f"Coords: {lat}, {lng}",
+        f"BBox:  {d.get('bbox')}",
+        f"Zoom:  {d.get('zoom')}",
+        f"Size:  {d.get('size', '8x8')}",
+        f"Style: {d.get('style', '')}  Mode: {d.get('mode', '')}",
+        "",
+        f"Customer: {doc.get('name', '')} <{doc.get('email', '')}>",
+        f"Message:  {doc.get('message', '') or '(none)'}",
+        "",
+        f"Request ID: {doc.get('id')}",
+    ]
+    return "\n".join(lines)
+
+
+@api_router.post("/build-requests")
+async def create_build_request(payload: BuildRequestCreate, user=Depends(get_optional_user)):
+    request_id = str(uuid.uuid4())
+    doc = {
+        "id": request_id,
+        "client_id": payload.client_id,
+        "name": payload.name.strip(),
+        "email": payload.email.lower().strip(),
+        "message": (payload.message or "").strip(),
+        "design": payload.design,
+        "status": "requested",
+        "price": MAP_PRICE,
+        "currency": "USD",
+        "created_at": now_iso(),
+    }
+    if user:
+        doc["user_id"] = user["id"]
+    await db.build_requests.insert_one(doc)
+
+    # Best-effort emails — a mail failure must never break the saved request.
+    email_sent = False
+    try:
+        place = (payload.design or {}).get("name", "a place")
+        summary = _build_request_summary(doc)
+        if PROOF_NOTIFY_EMAIL:
+            await send_email(
+                PROOF_NOTIFY_EMAIL,
+                f"New build request — {place}",
+                summary,
+            )
+        ack_body = (
+            f"Hi {doc['name'] or 'there'},\n\n"
+            f"Thanks for asking us to build your Terrane relief map of {place}.\n\n"
+            "Here's what happens next: we hand-build your 3D relief render from survey "
+            "elevation data and email you a proof to approve. You only pay ($249) once "
+            "you've said yes — nothing prints before then.\n\n"
+            f"Your request reference is {request_id[:8]}.\n\n"
+            "— Terrane"
+        )
+        email_sent = await send_email(
+            doc["email"],
+            "We've got your Terrane map request",
+            ack_body,
+        )
+    except Exception as e:
+        logger.error(f"build-request email step failed: {e}")
+
+    return {"request_id": request_id, "status": "requested", "email_sent": email_sent}
+
+
+@api_router.get("/admin/build-requests")
+async def admin_build_requests(user=Depends(require_user)):
+    if user.get("email", "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admins only")
+    docs = await db.build_requests.find().sort("created_at", -1).to_list(200)
+    for d in docs:
+        d.pop("_id", None)
+    return docs
+
+
 app.include_router(api_router)
 
 # Browsers only need CORS here when the frontend is served from a different
@@ -663,6 +802,10 @@ async def ensure_indexes():
         await db.orders.create_index("id")
         await db.orders.create_index("client_id")
         await db.orders.create_index("user_id")
+        await db.build_requests.create_index("created_at")
+        await db.build_requests.create_index("client_id")
+        await db.build_requests.create_index("user_id")
+        await db.build_requests.create_index("status")
         logger.info("MongoDB indexes ensured")
     except Exception as e:
         logger.error(f"Failed to ensure indexes: {e}")
