@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Check, Loader2, Hammer, Mail, Copy, User as UserIcon } from "lucide-react";
 import { toast } from "sonner";
 import { submitBuildRequest } from "../lib/api";
+import { track } from "../lib/analytics";
 import { useAuth } from "../lib/AuthContext";
 
 const SUPPORT_EMAIL = "contact@terranemaps.com";
@@ -51,6 +52,7 @@ export default function BuildRequestModal({ open, onClose, design, clientId }) {
         design,
       });
       setResult(data);
+      track("build_request_submitted", { place: (design?.name || "").slice(0, 80) });
       setPhase("done");
     } catch (err) {
       if (err?.response?.data?.detail) {

@@ -8,6 +8,7 @@ import PreviewPanel from '../components/studio/PreviewPanel';
 import MyDesignsDrawer from '../components/studio/MyDesignsDrawer';
 import useDesigns from '../hooks/useDesigns';
 import { getClientId, uploadRoute, fetchRoute, searchPlaces, fetchElevationFt } from '../lib/api';
+import { track } from '../lib/analytics';
 import { useAuth } from '../lib/AuthContext';
 import { fmtLat, fmtLng, printScaleLabel } from '../lib/format';
 import { THEMES, DEFAULT_LAYERS, getTheme } from '../lib/mapThemes';
@@ -184,6 +185,30 @@ export default function Studio() {
     setSearchQ(p.name);
   };
 
+  // One-shot on mount: analytics beacon + deep-link support. Place pages link
+  // here as /studio?lat=..&lng=..&name=..&sub=.. — if the params hold valid
+  // coordinates, frame that place immediately. Ref-guarded so it runs exactly
+  // once (StrictMode double-invokes effects in dev); malformed params are
+  // ignored and the default place stands.
+  const bootRef = useRef(false);
+  useEffect(() => {
+    if (bootRef.current) return;
+    bootRef.current = true;
+    track('studio_opened');
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const lat = parseFloat(params.get('lat'));
+      const lng = parseFloat(params.get('lng'));
+      if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        const name = params.get('name');
+        const sub = params.get('sub');
+        applyPlace({ name: name || `${lat}, ${lng}`, sub: sub || '', lat: +lat, lng: +lng });
+      }
+    } catch { /* malformed query string — keep the default place */ }
+    // Intentionally mount-only; applyPlace identity is irrelevant for a one-shot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSearch = async () => {
     if (!searchQ.trim()) { toast.error('Type a place to search'); return; }
     setSearching(true);
@@ -191,6 +216,7 @@ export default function Studio() {
       const results = await searchPlaces(searchQ.trim());
       if (results && results.length) {
         applyPlace(results[0]);
+        track('place_searched', { q: searchQ.trim().slice(0, 80) });
         toast.success(`Framed ${results[0].name}`);
       } else if (results) {
         toast.error('No place found — try a different search');
@@ -254,6 +280,7 @@ export default function Studio() {
       };
       if (kind === 'pdf') await exportPosterPDF(opts);
       else await exportPosterPNG(opts);
+      track('export_download', { format: kind });
       toast.success(kind === 'pdf' ? 'Poster PDF downloaded' : 'Poster PNG downloaded');
     } catch (e) {
       toast.error(e?.message || 'Export failed — try again');

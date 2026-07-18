@@ -12,6 +12,9 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Contact from "./pages/Contact";
 import NotFound from "./pages/NotFound";
+import PlacePage from "./pages/PlacePage";
+import Admin from "./pages/Admin";
+import RequestStatus from "./pages/RequestStatus";
 
 function App() {
   return (
@@ -28,6 +31,9 @@ function App() {
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/maps/:slug" element={<PlacePage />} />
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/request/:id" element={<RequestStatus />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

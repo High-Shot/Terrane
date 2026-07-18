@@ -61,6 +61,30 @@ export async function submitContact(payload) {
   return data;
 }
 
+// Public, sanitized view of a build request — the id itself is the capability.
+export async function fetchBuildRequest(id) {
+  const { data } = await api.get(`/build-requests/${id}`);
+  return data;
+}
+
+// Admin: list all build requests (403 unless the account is in ADMIN_EMAILS).
+export async function adminListRequests() {
+  const { data } = await api.get('/admin/build-requests');
+  return data;
+}
+
+// Admin: update a build request (status / proof_url / note / tracking_number).
+export async function adminUpdateRequest(id, patch) {
+  const { data } = await api.patch(`/admin/build-requests/${id}`, patch);
+  return data;
+}
+
+// Admin: 30-day first-party event stats + build-request totals by status.
+export async function adminStats() {
+  const { data } = await api.get('/admin/stats');
+  return data;
+}
+
 // ---------------------------------------------------------------------------
 // Backend-optional lookups. The backend proxies Nominatim/Photon/open-meteo;
 // when it's unreachable (e.g. a static-hosted preview with no API attached),
