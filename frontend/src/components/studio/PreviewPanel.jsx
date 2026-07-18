@@ -80,7 +80,7 @@ export default function PreviewPanel({ place, mode, style, legendName, legendLin
         ))}
       </div>
       <p className="text-center text-[var(--slate-dim)] text-xs mt-5 max-w-2xl mx-auto leading-relaxed">
-        A live 3D preview of your place — terrain, streets, and buildings, the same layers we print. Your final proof is rendered from survey elevation data and emailed for your approval before anything prints.
+        A live 3D preview of your place — terrain relief and streets, the same ground we print. Your final proof is rendered from survey elevation data and emailed for your approval before anything prints.
       </p>
     </div>
   );

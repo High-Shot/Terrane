@@ -16,6 +16,12 @@ import "maplibre-gl/dist/maplibre-gl.css";
 //      can never blank the whole map.
 //   4. If no base tile loads at all within the watchdog window, report it via
 //      onHealth so the UI can say so instead of showing a silent blank square.
+// DISABLED until a reliable vector-tile provider (e.g. MapTiler with an API
+// key) is configured: OpenFreeMap proved intermittently undeliverable in real
+// browsers — its style loads but map data doesn't render — which reads as a
+// broken product. The relief raster base below is the verified, guaranteed
+// path; vector theming returns with the terraink-parity buildout.
+const VECTOR_UPGRADE_ENABLED = false;
 const VECTOR_STYLE_URLS = {
   harbor: "https://tiles.openfreemap.org/styles/liberty",
   chart: "https://tiles.openfreemap.org/styles/bright",
@@ -301,6 +307,7 @@ export default function MapPreview({
     // shows as a blank beige canvas).
     let cancelled = false;
     const tryVectorUpgrade = (styleKey) => {
+      if (!VECTOR_UPGRADE_ENABLED) return;
       if (vectorBroken.current || cancelled || !mapObj.current) return;
       fetchVectorStyle(styleKey)
         .then((json) => {
