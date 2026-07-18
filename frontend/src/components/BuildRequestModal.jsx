@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Check, Loader2, Hammer, Mail, User as UserIcon } from "lucide-react";
+import { X, Check, Loader2, Hammer, Mail, Copy, User as UserIcon } from "lucide-react";
 import { toast } from "sonner";
 import { submitBuildRequest } from "../lib/api";
 import { useAuth } from "../lib/AuthContext";
@@ -65,20 +65,34 @@ export default function BuildRequestModal({ open, onClose, design, clientId }) {
     }
   };
 
-  // A mailto fallback carrying the full design, so a build request can always
-  // reach us even when the API is unreachable from this deployment.
-  const mailtoHref = () => {
+  // Fallbacks carrying the full design, so a build request can always reach
+  // us even when the API is unreachable from this deployment. mailto depends
+  // on a configured mail app, so a clipboard path is offered alongside it.
+  const designSummaryText = () => {
     const d = design || {};
-    const subject = encodeURIComponent(`Build my map — ${d.name || "custom design"}`);
-    const lines = [
+    return [
       `Name: ${name}`, `Email: ${email}`, "",
       `Place: ${d.name || ""}`, `Sub: ${d.sub || ""}`,
       `Center: ${d.lat}, ${d.lng}`, `BBox: ${JSON.stringify(d.bbox)}`,
       `Zoom: ${d.zoom}  Pitch: ${d.pitch}  Bearing: ${d.bearing}`,
       `Style: ${d.style}  Mode: ${d.mode}  Size: 8x8`, "",
       `Message: ${message || "(none)"}`,
-    ];
-    return `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${encodeURIComponent(lines.join("\n"))}`;
+    ].join("\n");
+  };
+
+  const mailtoHref = () => {
+    const d = design || {};
+    const subject = encodeURIComponent(`Build my map — ${d.name || "custom design"}`);
+    return `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${encodeURIComponent(designSummaryText())}`;
+  };
+
+  const copyDesign = async () => {
+    try {
+      await navigator.clipboard.writeText(`Build my map request\n\n${designSummaryText()}`);
+      toast.success(`Copied — paste it into an email to ${SUPPORT_EMAIL}`);
+    } catch {
+      toast.error("Couldn't copy — use the email button instead");
+    }
   };
 
   const inputCls = "w-full bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm pl-10 pr-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors disabled:opacity-60";
@@ -149,9 +163,18 @@ export default function BuildRequestModal({ open, onClose, design, clientId }) {
                 Build my map
               </button>
               {offline && (
-                <a href={mailtoHref()} className="btn-ghost w-full flex items-center justify-center gap-2">
-                  <Mail size={15} /> Email us your design instead
-                </a>
+                <div className="rounded-sm border border-[var(--line-strong)] bg-[var(--bg-0)] p-3 space-y-2">
+                  <p className="text-[var(--slate)] text-xs leading-relaxed">
+                    We couldn't reach our workshop server — your design isn't lost. Send it to{" "}
+                    <span className="text-[var(--cream)] select-all">{SUPPORT_EMAIL}</span> instead:
+                  </p>
+                  <a href={mailtoHref()} className="btn-ghost w-full flex items-center justify-center gap-2">
+                    <Mail size={15} /> Email us your design
+                  </a>
+                  <button type="button" onClick={copyDesign} className="btn-ghost w-full flex items-center justify-center gap-2">
+                    <Copy size={15} /> Copy design details
+                  </button>
+                </div>
               )}
             </form>
 
