@@ -103,6 +103,8 @@ class Design(BaseModel):
     image: Optional[str] = ""
     bbox: Optional[Any] = None
     zoom: Optional[float] = None
+    pitch: Optional[float] = None
+    bearing: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
     created_at: str = Field(default_factory=now_iso)
@@ -122,6 +124,8 @@ class DesignCreate(BaseModel):
     image: Optional[str] = ""
     bbox: Optional[Any] = None
     zoom: Optional[float] = None
+    pitch: Optional[float] = None
+    bearing: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
 

@@ -183,7 +183,7 @@ export default function Studio() {
   const currentDesign = () => ({
     client_id: clientId, name: legendName || place.name, sub: legendLine2 || place.sub,
     lat: place.lat, lng: place.lng, mode, style, size: SIZE, orientation: ORIENTATION, elev: place.elev, image: activeStyle.img,
-    bbox: frame?.bounds ?? null, zoom: frame?.zoom ?? null,
+    bbox: frame?.bounds ?? null, zoom: frame?.zoom ?? null, pitch: frame?.pitch ?? null, bearing: frame?.bearing ?? null,
     route_id: route?.id || null, route_color: routeColor,
   });
 
@@ -330,7 +330,7 @@ export default function Studio() {
           {/* 02 FRAME */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
             <SectionTitle n="02" title="Frame" />
-            <Segmented value={mode} onChange={setMode} options={[{ label: 'Terrain relief', value: 'relief' }, { label: 'City streets', value: 'streets' }]} />
+            <Segmented value={mode} onChange={setMode} options={[{ label: '3D terrain', value: 'relief' }, { label: 'Top-down', value: 'streets' }]} />
             <div className="grid grid-cols-3 gap-3 mt-4">
               {MAP_STYLES.map((s) => (
                 <button key={s.id} onClick={() => setStyle(s.id)}
@@ -343,7 +343,7 @@ export default function Studio() {
                 </button>
               ))}
             </div>
-            <p className="text-[var(--slate)] text-xs mt-4">Pan and zoom the preview to set your crop. What you frame is what we build — a single 8" × 8" relief map.</p>
+            <p className="text-[var(--slate)] text-xs mt-4">Pan, zoom, and drag to rotate or tilt the preview. What you frame — including the 3D angle — is what we build into a single 8" × 8" relief map.</p>
           </div>
 
           {/* 03 LEGEND */}

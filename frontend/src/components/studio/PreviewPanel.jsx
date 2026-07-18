@@ -1,7 +1,10 @@
-import React from 'react';
-import { Plus, Minus, Info } from 'lucide-react';
-import MapPreview from '../MapPreview';
+import React, { Suspense } from 'react';
+import { Plus, Minus, Compass, Loader2 } from 'lucide-react';
 import { fmtLat, fmtLng, printScaleLabel, formatSizeLabel } from '../../lib/format';
+
+// Lazy-loaded so MapLibre (a large dependency) ships in its own chunk and never
+// weighs down the marketing pages, which don't render the studio.
+const MapPreview = React.lazy(() => import('../MapPreview'));
 
 export default function PreviewPanel({ place, mode, style, legendName, legendLine2, route, routeColor, mapRef, frame, onFrameChange }) {
   const scaleLabel = printScaleLabel(frame?.bounds);
@@ -20,19 +23,26 @@ export default function PreviewPanel({ place, mode, style, legendName, legendLin
       <div className="flex justify-center mb-5">
         <div className="flex items-center gap-2 border border-[var(--line-strong)] rounded-full px-4 py-2">
           <span className="w-2 h-2 rounded-full bg-[var(--rust)] animate-pulse" />
-          <span className="mono-label text-[var(--cream)]">Live map preview</span>
+          <span className="mono-label text-[var(--cream)]">Live 3D preview</span>
         </div>
       </div>
 
       <div className="mx-auto relative rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-2)] shadow-[0_40px_100px_-40px_rgba(0,0,0,0.9)] max-w-[560px] aspect-square">
-        <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef}
-          routePoints={route?.points} routeColor={routeColor} routeBounds={route?.bounds} onFrameChange={onFrameChange} />
-        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent 45%, rgba(11,28,41,0.92))' }} />
+        <Suspense fallback={
+          <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-2)]">
+            <Loader2 size={22} className="animate-spin text-[var(--rust)]" />
+          </div>
+        }>
+          <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef}
+            routePoints={route?.points} routeColor={routeColor} routeBounds={route?.bounds} onFrameChange={onFrameChange} />
+        </Suspense>
+        {/* Legend legibility scrim — kept light so the 3D terrain still reads. */}
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent 60%, rgba(11,28,41,0.85))' }} />
 
         <div className="absolute top-4 right-4 z-[400] flex flex-col rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-0)]/80">
-          <button onClick={zoomIn} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Plus size={16} /></button>
+          <button onClick={zoomIn} aria-label="Zoom in" className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Plus size={16} /></button>
           <span className="h-px bg-[var(--line)]" />
-          <button onClick={zoomOut} className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Minus size={16} /></button>
+          <button onClick={zoomOut} aria-label="Zoom out" className="p-2 text-[var(--cream)] hover:bg-[var(--rust)]/20 transition-colors"><Minus size={16} /></button>
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none z-[400]">
@@ -45,8 +55,8 @@ export default function PreviewPanel({ place, mode, style, legendName, legendLin
         </div>
 
         <div className="absolute bottom-4 right-4 z-[400] flex items-center gap-1.5 bg-[var(--bg-0)]/85 border border-[var(--line)] rounded-full px-3 py-1.5">
-          <Info size={13} className="text-[var(--slate)]" />
-          <span className="mono-label text-[var(--slate)] !text-[0.6rem]">{mode === 'streets' ? 'OpenStreetMap' : 'USGS 3DEP, NOAA via Terrain Tiles'}</span>
+          <Compass size={13} className="text-[var(--slate)]" />
+          <span className="mono-label text-[var(--slate)] !text-[0.6rem]">Drag to rotate · scroll to zoom</span>
         </div>
       </div>
 
@@ -59,7 +69,7 @@ export default function PreviewPanel({ place, mode, style, legendName, legendLin
         ))}
       </div>
       <p className="text-center text-[var(--slate-dim)] text-xs mt-5 max-w-2xl mx-auto leading-relaxed">
-        A live preview to frame your place. We build your 3D-printed relief from survey elevation data and email a proof for your approval before anything prints.
+        A live 3D preview of your place — terrain, streets, and buildings, the same layers we print. Your final proof is rendered from survey elevation data and emailed for your approval before anything prints.
       </p>
     </div>
   );
