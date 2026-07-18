@@ -199,11 +199,13 @@ export default function MapPreview({
   const containerRef = useRef(null);
   const mapObj = useRef(null);
   const styleRef = useRef(style);
-  const vectorOk = useRef(false);
+  const vectorBroken = useRef(false); // vector tiles failed to deliver — stay on raster
+  const vectorPending = useRef(null); // { sources: Set<string>, timer } awaiting first vector tile
   const demOk = useRef(false);
   const baseTileLoaded = useRef(false);
   const healthRef = useRef("loading");
   const watchdog = useRef(null);
+  const tryVectorUpgradeRef = useRef(null); // set during init; used by the theme-switch effect
   // Latest props for handlers/closures that persist across renders.
   const stateRef = useRef({ mode, routePoints, routeColor });
   stateRef.current = { mode, routePoints, routeColor };
@@ -266,11 +268,17 @@ export default function MapPreview({
       console.warn("[Terrane map]", e && e.sourceId ? `source=${e.sourceId}` : "", (e && e.error && e.error.message) || "unknown");
     });
 
-    // Watchdog: track whether any BASE tile (non-DEM) ever arrives.
+    // Watchdog: track whether any BASE tile (non-DEM) ever arrives. Also
+    // confirms a pending vector upgrade the moment one of its tiles delivers.
     map.on("data", (e) => {
       if (e && e.tile && e.sourceId && e.sourceId !== DEM_SOURCE) {
         baseTileLoaded.current = true;
         setHealth("ok");
+        const pending = vectorPending.current;
+        if (pending && pending.sources.has(e.sourceId)) {
+          clearTimeout(pending.timer);
+          vectorPending.current = null;
+        }
       }
     });
     watchdog.current = setTimeout(() => {
@@ -286,18 +294,41 @@ export default function MapPreview({
     map.on("pitchend", emit);
     map.on("rotateend", emit);
 
-    // Background upgrade to the full vector style (3D buildings) when reachable.
+    // Attempt an upgrade to the full vector style (3D buildings). The style
+    // JSON loading is NOT proof the map will render — its TILES must deliver.
+    // If no vector tile arrives within the window, auto-revert to the raster
+    // relief base and stop trying (a loaded-but-empty vector style otherwise
+    // shows as a blank beige canvas).
     let cancelled = false;
-    fetchVectorStyle(styleRef.current)
-      .then((json) => {
-        if (cancelled || !mapObj.current) return;
-        vectorOk.current = true;
-        map.setStyle(json, { diff: false });
-      })
-      .catch(() => {
-        // eslint-disable-next-line no-console
-        console.warn("[Terrane] vector base unavailable — staying on the relief basemap");
-      });
+    const tryVectorUpgrade = (styleKey) => {
+      if (vectorBroken.current || cancelled || !mapObj.current) return;
+      fetchVectorStyle(styleKey)
+        .then((json) => {
+          if (cancelled || !mapObj.current || vectorBroken.current) return;
+          const sources = new Set(
+            Object.keys(json.sources || {}).filter((k) => (json.sources[k] || {}).type === "vector")
+          );
+          if (vectorPending.current) clearTimeout(vectorPending.current.timer);
+          vectorPending.current = {
+            sources,
+            timer: setTimeout(() => {
+              vectorPending.current = null;
+              if (cancelled || !mapObj.current) return;
+              vectorBroken.current = true;
+              // eslint-disable-next-line no-console
+              console.warn("[Terrane] vector tiles never arrived — reverting to the relief basemap");
+              map.setStyle(rasterBaseStyle(), { diff: false });
+            }, TILE_WATCHDOG_MS),
+          };
+          map.setStyle(json, { diff: false });
+        })
+        .catch(() => {
+          // eslint-disable-next-line no-console
+          console.warn("[Terrane] vector base unavailable — staying on the relief basemap");
+        });
+    };
+    tryVectorUpgradeRef.current = tryVectorUpgrade;
+    tryVectorUpgrade(styleRef.current);
 
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
@@ -305,6 +336,7 @@ export default function MapPreview({
     return () => {
       cancelled = true;
       clearTimeout(watchdog.current);
+      if (vectorPending.current) clearTimeout(vectorPending.current.timer);
       ro.disconnect();
       map.remove();
       mapObj.current = null;
@@ -327,22 +359,13 @@ export default function MapPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lng, routeBounds]);
 
-  // Theme switch — try the matching vector style (self-healing even if the
-  // first probe failed); if unreachable, keep whatever base is showing.
+  // Theme switch — try the matching vector style through the same verified
+  // upgrade path; once vector tiles have proven undeliverable, stay on raster.
   useEffect(() => {
     const map = mapObj.current;
     if (!map || styleRef.current === style) return;
     styleRef.current = style;
-    fetchVectorStyle(style)
-      .then((json) => {
-        if (!mapObj.current) return;
-        vectorOk.current = true;
-        map.setStyle(json, { diff: false });
-      })
-      .catch(() => {
-        // eslint-disable-next-line no-console
-        console.warn("[Terrane] vector style unavailable — keeping current basemap");
-      });
+    if (tryVectorUpgradeRef.current) tryVectorUpgradeRef.current(style);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [style]);
 
