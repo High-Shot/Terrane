@@ -16,16 +16,18 @@ import "maplibre-gl/dist/maplibre-gl.css";
 //      can never blank the whole map.
 //   4. If no base tile loads at all within the watchdog window, report it via
 //      onHealth so the UI can say so instead of showing a silent blank square.
-// DISABLED until a reliable vector-tile provider (e.g. MapTiler with an API
-// key) is configured: OpenFreeMap proved intermittently undeliverable in real
-// browsers — its style loads but map data doesn't render — which reads as a
-// broken product. The relief raster base below is the verified, guaranteed
-// path; vector theming returns with the terraink-parity buildout.
-const VECTOR_UPGRADE_ENABLED = false;
+// Vector styling requires a keyed, reliable tile provider (MapTiler). The
+// keyless host we tried first (OpenFreeMap) proved intermittently
+// undeliverable in real browsers — style loads, map data never renders.
+// With no key configured, the studio stays on the verified relief raster
+// base below. Set REACT_APP_MAPTILER_KEY at build time to enable vector
+// themes; the tile-verified auto-revert still guards every upgrade.
+const MAPTILER_KEY = (process.env.REACT_APP_MAPTILER_KEY || "").trim();
+const VECTOR_UPGRADE_ENABLED = MAPTILER_KEY.length > 0;
 const VECTOR_STYLE_URLS = {
-  harbor: "https://tiles.openfreemap.org/styles/liberty",
-  chart: "https://tiles.openfreemap.org/styles/bright",
-  basalt: "https://tiles.openfreemap.org/styles/positron",
+  harbor: `https://api.maptiler.com/maps/outdoor-v2/style.json?key=${MAPTILER_KEY}`,
+  chart: `https://api.maptiler.com/maps/topo-v2/style.json?key=${MAPTILER_KEY}`,
+  basalt: `https://api.maptiler.com/maps/dataviz-dark/style.json?key=${MAPTILER_KEY}`,
 };
 const DEM_SOURCE = "terrane-dem";
 const TERRAIN_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
