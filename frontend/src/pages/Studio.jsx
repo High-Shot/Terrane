@@ -8,7 +8,7 @@ import AuthModal from '../components/AuthModal';
 import PreviewPanel from '../components/studio/PreviewPanel';
 import MyDesignsDrawer from '../components/studio/MyDesignsDrawer';
 import useDesigns from '../hooks/useDesigns';
-import { api, getClientId, uploadRoute, fetchRoute } from '../lib/api';
+import { getClientId, uploadRoute, fetchRoute, searchPlaces, fetchElevationFt } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
 import { fmtLat, fmtLng } from '../lib/format';
 
@@ -92,8 +92,8 @@ export default function Studio() {
   // Fetch elevation whenever place coordinates change
   const fetchElevation = useCallback(async (lat, lng) => {
     try {
-      const { data } = await api.get('/elevation', { params: { lat, lng } });
-      setPlace((p) => ({ ...p, elev: data.elevation_ft }));
+      const ft = await fetchElevationFt(lat, lng); // backend first, open-meteo direct as fallback
+      setPlace((p) => ({ ...p, elev: ft }));
     } catch (error) {
       console.error('Failed to fetch elevation:', error);
       // Non-blocking: keep the previous elevation value rather than interrupting the design flow.
@@ -109,8 +109,8 @@ export default function Studio() {
     if (tab !== 'search' || searchQ.trim().length < 3) { setSuggests([]); return; }
     const t = setTimeout(async () => {
       try {
-        const { data } = await api.get('/geocode', { params: { q: searchQ.trim() } });
-        setSuggests(data.results || []);
+        const results = await searchPlaces(searchQ.trim());
+        setSuggests(results || []);
       } catch { setSuggests([]); }
     }, 350);
     return () => clearTimeout(t);
@@ -137,12 +137,15 @@ export default function Studio() {
     if (!searchQ.trim()) { toast.error('Type a place to search'); return; }
     setSearching(true);
     try {
-      const { data } = await api.get('/geocode', { params: { q: searchQ.trim() } });
-      if (data.results && data.results.length) {
-        applyPlace(data.results[0]);
-        toast.success(`Framed ${data.results[0].name}`);
-      } else {
+      const results = await searchPlaces(searchQ.trim());
+      if (results && results.length) {
+        applyPlace(results[0]);
+        toast.success(`Framed ${results[0].name}`);
+      } else if (results) {
         toast.error('No place found — try a different search');
+      } else {
+        // null = backend AND direct geocoders unreachable
+        toast.error('Search is unreachable — check your connection, or use the Coordinates tab.');
       }
     } catch {
       toast.error('Search failed. Try again.');

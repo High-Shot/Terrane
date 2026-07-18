@@ -2,30 +2,36 @@ import React, { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-// The studio preview renders the same layers we 3D-print — terrain relief,
-// streets, water, and extruded buildings — so a customer sees the physical
-// object they'll receive. Data is keyless:
-//   - Primary base (streets + 3D buildings + water + land): OpenFreeMap hosted
-//     vector styles (OpenMapTiles schema, source id "openmaptiles").
-//   - Fallback base (if the vector host is unreachable): ESRI shaded-relief +
-//     OSM raster tiles — the sources the previous studio used reliably.
-//   - Elevation for 3D terrain + hillshade (both bases): AWS "terrarium" DEM.
-const STYLE_URLS = {
+// The studio preview renders the layers we 3D-print — terrain relief, streets,
+// water, and buildings — so a customer sees the physical object they'll receive.
+//
+// Loading strategy (resilience-first):
+//   1. Start from a SELF-CONTAINED raster style (no style JSON to fetch): ESRI
+//      shaded relief + OSM streets — the stack the original studio rendered
+//      reliably. First paint does not depend on any style-server being up.
+//   2. Probe the OpenFreeMap vector style in the background; when reachable,
+//      upgrade in place for full vector styling + 3D extruded buildings.
+//   3. 3D terrain (AWS terrarium DEM) is applied on top of either base, and is
+//      DISABLED automatically if DEM tiles error, so a blocked elevation host
+//      can never blank the whole map.
+//   4. If no base tile loads at all within the watchdog window, report it via
+//      onHealth so the UI can say so instead of showing a silent blank square.
+const VECTOR_STYLE_URLS = {
   harbor: "https://tiles.openfreemap.org/styles/liberty",
   chart: "https://tiles.openfreemap.org/styles/bright",
   basalt: "https://tiles.openfreemap.org/styles/positron",
 };
 const DEM_SOURCE = "terrane-dem";
 const TERRAIN_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
-const STYLE_LOAD_FALLBACK_MS = 4000;
+const VECTOR_PROBE_TIMEOUT_MS = 4000;
+const TILE_WATCHDOG_MS = 7000;
 
-const styleUrlFor = (style) => STYLE_URLS[style] || STYLE_URLS.harbor;
 // "relief" = tilted 3D terrain; "streets" = flat top-down.
 const exaggerationFor = (mode) => (mode === "streets" ? 0 : 1.4);
 const pitchFor = (mode) => (mode === "streets" ? 0 : 55);
 
-// Self-contained raster fallback style (no external style JSON to fetch).
-function rasterFallbackStyle() {
+// Proven raster stack, embedded so first paint needs no style fetch.
+function rasterBaseStyle() {
   return {
     version: 8,
     sources: {
@@ -51,7 +57,7 @@ function rasterFallbackStyle() {
     layers: [
       { id: "bg", type: "background", paint: { "background-color": "#0e2231" } },
       { id: "relief", type: "raster", source: "terrane-relief" },
-      { id: "streets", type: "raster", source: "terrane-osm", paint: { "raster-opacity": 0.6 } },
+      { id: "streets", type: "raster", source: "terrane-osm", paint: { "raster-opacity": 0.55 } },
     ],
   };
 }
@@ -62,8 +68,47 @@ const firstSymbolId = (map) => {
   return sym ? sym.id : undefined;
 };
 
-// (Re)apply terrain relief + hillshade — works on either base style. setStyle()
-// wipes custom sources/layers, so this runs on every style load. Idempotent.
+// Fetch a vector style JSON ourselves (with a hard timeout) so a dead style
+// host can never leave MapLibre stuck — we only setStyle once we HAVE the JSON.
+async function fetchVectorStyle(styleKey) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), VECTOR_PROBE_TIMEOUT_MS);
+  try {
+    const r = await fetch(VECTOR_STYLE_URLS[styleKey] || VECTOR_STYLE_URLS.harbor, { signal: ctrl.signal });
+    if (!r.ok) throw new Error(`style http ${r.status}`);
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// CRITICAL: with terrain enabled, MapLibre's render pass depends on DEM tiles —
+// if the elevation host is unreachable, the WHOLE map renders blank even though
+// street/relief tiles load fine. So terrain is only ever enabled after a probe
+// proves the DEM host is reachable. Worst case: a flat map that always paints.
+let demProbePromise = null;
+function probeDem() {
+  if (!demProbePromise) {
+    demProbePromise = (async () => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), VECTOR_PROBE_TIMEOUT_MS);
+      try {
+        const r = await fetch("https://s3.amazonaws.com/elevation-tiles-prod/terrarium/0/0/0.png", { signal: ctrl.signal });
+        return r.ok;
+      } catch {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    })().then((ok) => {
+      // eslint-disable-next-line no-console
+      if (!ok) console.warn("[Terrane] elevation tiles unreachable — 3D relief disabled, map stays flat");
+      return ok;
+    });
+  }
+  return demProbePromise;
+}
+
 function applyTerrain(map, exaggeration) {
   if (!map.getSource(DEM_SOURCE)) {
     map.addSource(DEM_SOURCE, {
@@ -83,8 +128,7 @@ function applyTerrain(map, exaggeration) {
   }
 }
 
-// Ensure 3D buildings exist. Liberty already extrudes them; minimal vector
-// styles don't, so add our own from the OpenMapTiles building layer.
+// 3D buildings — only possible on the vector base (OpenMapTiles schema).
 function applyBuildings(map) {
   const layers = (map.getStyle() && map.getStyle().layers) || [];
   if (layers.some((l) => l.type === "fill-extrusion")) return;
@@ -150,22 +194,32 @@ export default function MapPreview({
   routeColor = "#cd7b41",
   routeBounds,
   onFrameChange,
+  onHealth,
 }) {
   const containerRef = useRef(null);
   const mapObj = useRef(null);
   const styleRef = useRef(style);
-  const loadedRef = useRef(false);
-  const fbTimer = useRef(null);
+  const vectorOk = useRef(false);
+  const demOk = useRef(false);
+  const baseTileLoaded = useRef(false);
+  const healthRef = useRef("loading");
+  const watchdog = useRef(null);
   // Latest props for handlers/closures that persist across renders.
   const stateRef = useRef({ mode, routePoints, routeColor });
   stateRef.current = { mode, routePoints, routeColor };
+
+  const setHealth = (h) => {
+    if (healthRef.current === h) return;
+    healthRef.current = h;
+    if (onHealth) onHealth(h);
+  };
 
   // Init once.
   useEffect(() => {
     if (mapObj.current || !containerRef.current) return undefined;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: styleUrlFor(style),
+      style: rasterBaseStyle(), // instant, dependency-free first style
       center: [lng, lat],
       zoom: 12,
       pitch: pitchFor(mode),
@@ -175,13 +229,8 @@ export default function MapPreview({
     });
     mapObj.current = map;
     if (mapRef) mapRef.current = map;
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
-
-    const setup = () => {
-      applyTerrain(map, exaggerationFor(stateRef.current.mode));
-      applyBuildings(map);
-      applyRoute(map, stateRef.current.routePoints, stateRef.current.routeColor);
-    };
+    // Top-left keeps required attribution clear of the legend overlay.
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "top-left");
 
     const emit = () => {
       if (!onFrameChange) return;
@@ -196,37 +245,66 @@ export default function MapPreview({
       });
     };
 
-    const goRasterFallback = () => {
-      if (loadedRef.current || !mapObj.current) return;
-      // The vector base didn't load in time (host down / network / blocker).
-      // eslint-disable-next-line no-console
-      console.warn("[Terrane] vector base map unavailable — using raster relief fallback");
-      map.setStyle(rasterFallbackStyle());
-    };
-
-    // A style ("style.load") fires only when a style actually finishes loading —
-    // for the initial vector style OR the raster fallback. If the vector fetch
-    // fails, it never fires and the timer swaps in the raster base.
+    // Re-apply our layers whenever a style finishes loading (initial raster,
+    // vector upgrade, or theme switch — setStyle wipes custom sources/layers).
+    // Terrain is gated on the DEM probe — never enabled unless elevation
+    // tiles are actually reachable (a failing DEM blanks the entire canvas).
     map.on("style.load", () => {
-      loadedRef.current = true;
-      clearTimeout(fbTimer.current);
-      setup();
+      probeDem().then((ok) => {
+        demOk.current = ok;
+        if (ok && mapObj.current && map.isStyleLoaded()) {
+          applyTerrain(map, exaggerationFor(stateRef.current.mode));
+        }
+      });
+      applyBuildings(map);
+      applyRoute(map, stateRef.current.routePoints, stateRef.current.routeColor);
       emit();
     });
+
+    map.on("error", (e) => {
+      // eslint-disable-next-line no-console
+      console.warn("[Terrane map]", e && e.sourceId ? `source=${e.sourceId}` : "", (e && e.error && e.error.message) || "unknown");
+    });
+
+    // Watchdog: track whether any BASE tile (non-DEM) ever arrives.
+    map.on("data", (e) => {
+      if (e && e.tile && e.sourceId && e.sourceId !== DEM_SOURCE) {
+        baseTileLoaded.current = true;
+        setHealth("ok");
+      }
+    });
+    watchdog.current = setTimeout(() => {
+      if (!baseTileLoaded.current) {
+        // eslint-disable-next-line no-console
+        console.warn("[Terrane] no map tiles loaded — a network filter or ad-blocker is likely blocking map servers");
+        setHealth("no-tiles");
+      }
+    }, TILE_WATCHDOG_MS);
+
     map.on("load", emit);
     map.on("moveend", emit);
     map.on("pitchend", emit);
     map.on("rotateend", emit);
-    // eslint-disable-next-line no-console
-    map.on("error", (e) => console.warn("[Terrane map]", (e && e.error && e.error.message) || e));
 
-    fbTimer.current = setTimeout(goRasterFallback, STYLE_LOAD_FALLBACK_MS);
+    // Background upgrade to the full vector style (3D buildings) when reachable.
+    let cancelled = false;
+    fetchVectorStyle(styleRef.current)
+      .then((json) => {
+        if (cancelled || !mapObj.current) return;
+        vectorOk.current = true;
+        map.setStyle(json, { diff: false });
+      })
+      .catch(() => {
+        // eslint-disable-next-line no-console
+        console.warn("[Terrane] vector base unavailable — staying on the relief basemap");
+      });
 
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
 
     return () => {
-      clearTimeout(fbTimer.current);
+      cancelled = true;
+      clearTimeout(watchdog.current);
       ro.disconnect();
       map.remove();
       mapObj.current = null;
@@ -249,29 +327,30 @@ export default function MapPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lng, routeBounds]);
 
-  // Style/theme change — re-arm the vector-load fallback for the new style.
+  // Theme switch — try the matching vector style (self-healing even if the
+  // first probe failed); if unreachable, keep whatever base is showing.
   useEffect(() => {
     const map = mapObj.current;
     if (!map || styleRef.current === style) return;
     styleRef.current = style;
-    loadedRef.current = false;
-    map.setStyle(styleUrlFor(style));
-    clearTimeout(fbTimer.current);
-    fbTimer.current = setTimeout(() => {
-      if (!loadedRef.current || !mapObj.current) {
+    fetchVectorStyle(style)
+      .then((json) => {
+        if (!mapObj.current) return;
+        vectorOk.current = true;
+        map.setStyle(json, { diff: false });
+      })
+      .catch(() => {
         // eslint-disable-next-line no-console
-        console.warn("[Terrane] vector base map unavailable — using raster relief fallback");
-        map.setStyle(rasterFallbackStyle(), { diff: false });
-      }
-    }, STYLE_LOAD_FALLBACK_MS);
+        console.warn("[Terrane] vector style unavailable — keeping current basemap");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [style]);
 
-  // 3D terrain vs flat top-down.
+  // 3D terrain vs flat top-down (terrain only when the DEM probe passed).
   useEffect(() => {
     const map = mapObj.current;
     if (!map) return;
-    if (map.getSource(DEM_SOURCE)) {
+    if (demOk.current && map.getSource(DEM_SOURCE)) {
       const ex = exaggerationFor(mode);
       map.setTerrain(ex > 0 ? { source: DEM_SOURCE, exaggeration: ex } : null);
     }
@@ -287,5 +366,9 @@ export default function MapPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routePoints, routeColor]);
 
-  return <div ref={containerRef} className="absolute inset-0" style={{ background: "#0e2231" }} />;
+  // Inline position/size: MapLibre's own stylesheet sets `.maplibregl-map
+  // { position: relative }` on this element, which overrides utility classes
+  // and collapses the div to 0 height (blank, clipped canvas). Inline styles
+  // always win, guaranteeing the render target fills the square preview box.
+  return <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", background: "#0e2231" }} />;
 }

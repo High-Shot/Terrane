@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { submitBuildRequest } from "../lib/api";
 import { useAuth } from "../lib/AuthContext";
 
+const SUPPORT_EMAIL = "contact@terranemaps.com";
+
 export default function BuildRequestModal({ open, onClose, design, clientId }) {
   const { user } = useAuth();
   const [phase, setPhase] = useState("form"); // form | done
@@ -12,6 +14,7 @@ export default function BuildRequestModal({ open, onClose, design, clientId }) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [result, setResult] = useState(null);
+  const [offline, setOffline] = useState(false); // backend unreachable — offer the email path
 
   // Prefill from the logged-in user whenever the modal opens.
   useEffect(() => {
@@ -50,10 +53,32 @@ export default function BuildRequestModal({ open, onClose, design, clientId }) {
       setResult(data);
       setPhase("done");
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Couldn't submit — try again");
+      if (err?.response?.data?.detail) {
+        toast.error(err.response.data.detail);
+      } else {
+        // Network-level failure (backend unreachable) — never dead-end the customer.
+        setOffline(true);
+        toast.error("Couldn't reach our workshop — you can email us your design instead.");
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  // A mailto fallback carrying the full design, so a build request can always
+  // reach us even when the API is unreachable from this deployment.
+  const mailtoHref = () => {
+    const d = design || {};
+    const subject = encodeURIComponent(`Build my map — ${d.name || "custom design"}`);
+    const lines = [
+      `Name: ${name}`, `Email: ${email}`, "",
+      `Place: ${d.name || ""}`, `Sub: ${d.sub || ""}`,
+      `Center: ${d.lat}, ${d.lng}`, `BBox: ${JSON.stringify(d.bbox)}`,
+      `Zoom: ${d.zoom}  Pitch: ${d.pitch}  Bearing: ${d.bearing}`,
+      `Style: ${d.style}  Mode: ${d.mode}  Size: 8x8`, "",
+      `Message: ${message || "(none)"}`,
+    ];
+    return `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${encodeURIComponent(lines.join("\n"))}`;
   };
 
   const inputCls = "w-full bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm pl-10 pr-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors disabled:opacity-60";
@@ -123,6 +148,11 @@ export default function BuildRequestModal({ open, onClose, design, clientId }) {
                 {busy ? <Loader2 size={15} className="animate-spin" /> : <Hammer size={15} />}
                 Build my map
               </button>
+              {offline && (
+                <a href={mailtoHref()} className="btn-ghost w-full flex items-center justify-center gap-2">
+                  <Mail size={15} /> Email us your design instead
+                </a>
+              )}
             </form>
 
             <div className="mono-label text-[var(--slate-dim)] mt-4 text-center">Final proof emailed before anything prints</div>

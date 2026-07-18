@@ -1,5 +1,5 @@
-import React, { Suspense } from 'react';
-import { Plus, Minus, Compass, Loader2 } from 'lucide-react';
+import React, { Suspense, useState } from 'react';
+import { Plus, Minus, Compass, Loader2, AlertTriangle } from 'lucide-react';
 import { fmtLat, fmtLng, printScaleLabel, formatSizeLabel } from '../../lib/format';
 
 // Lazy-loaded so MapLibre (a large dependency) ships in its own chunk and never
@@ -7,6 +7,7 @@ import { fmtLat, fmtLng, printScaleLabel, formatSizeLabel } from '../../lib/form
 const MapPreview = React.lazy(() => import('../MapPreview'));
 
 export default function PreviewPanel({ place, mode, style, legendName, legendLine2, route, routeColor, mapRef, frame, onFrameChange }) {
+  const [mapHealth, setMapHealth] = useState('loading'); // loading | ok | no-tiles
   const scaleLabel = printScaleLabel(frame?.bounds);
   const zoomIn = () => mapRef.current && mapRef.current.zoomIn();
   const zoomOut = () => mapRef.current && mapRef.current.zoomOut();
@@ -34,8 +35,18 @@ export default function PreviewPanel({ place, mode, style, legendName, legendLin
           </div>
         }>
           <MapPreview lat={place.lat} lng={place.lng} mode={mode} style={style} mapRef={mapRef}
-            routePoints={route?.points} routeColor={routeColor} routeBounds={route?.bounds} onFrameChange={onFrameChange} />
+            routePoints={route?.points} routeColor={routeColor} routeBounds={route?.bounds}
+            onFrameChange={onFrameChange} onHealth={setMapHealth} />
         </Suspense>
+        {mapHealth === 'no-tiles' && (
+          <div className="absolute top-4 left-4 right-16 z-[410] flex items-start gap-2 rounded-sm border border-[var(--rust)] bg-[var(--bg-0)]/95 px-3 py-2.5">
+            <AlertTriangle size={15} className="text-[var(--rust)] mt-0.5 shrink-0" />
+            <span className="text-[var(--cream-dim)] text-xs leading-relaxed">
+              Map imagery isn't loading — an ad&#8209;blocker, browser shield, or network filter is likely blocking map servers.
+              Try pausing extensions for this site or another network.
+            </span>
+          </div>
+        )}
         {/* Legend legibility scrim — kept light so the 3D terrain still reads. */}
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent 60%, rgba(11,28,41,0.85))' }} />
 
