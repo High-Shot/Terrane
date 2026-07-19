@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""
+Terrane -> Shopify setup. Runs from a machine that can reach Shopify (e.g. the
+laptop), using the Shopify Admin API. Creates the product (as DRAFT), the pages
+(UNPUBLISHED), and uploads the homepage sections into a theme (non-destructive —
+the sections just become available in the theme editor; your live homepage is
+not changed).
+
+Standard library only (no pip installs needed).
+
+Usage:
+    SHOPIFY_STORE=terrane-maps.myshopify.com \
+    SHOPIFY_ADMIN_TOKEN=shpat_xxxxxxxx \
+    [SHOPIFY_THEME_ID=156340977821] \
+    python3 shopify/setup.py
+
+The token must be an Admin API ACCESS token (starts with `shpat_`) from a custom
+app installed with scopes: write_products, write_content, write_themes,
+read_themes. Never commit the token.
+"""
+import os
+import sys
+import json
+import time
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+API = "2024-10"
+HERE = Path(__file__).resolve().parent
+STORE = os.environ.get("SHOPIFY_STORE", "").strip()
+TOKEN = os.environ.get("SHOPIFY_ADMIN_TOKEN", "").strip()
+THEME_ID = os.environ.get("SHOPIFY_THEME_ID", "").strip()
+
+PRODUCT_HANDLE = "custom-relief-map-8x8"
+PRODUCT_TITLE = 'Custom 3D-Printed Relief Map — 8" × 8"'
+PRODUCT_BODY_HTML = """
+<p><strong>The place that made you, built from real terrain data and printed in relief.</strong></p>
+<p>Terrane builds your map from the same public datasets surveyors use &mdash; <strong>elevation from USGS 3DEP, water from NOAA, roads and place names from OpenStreetMap</strong>. We resolve your place to exact coordinates and build the geometry from measurements, not artistic license.</p>
+<h3>What you get</h3>
+<ul>
+  <li><strong>8&quot; &times; 8&quot; square</strong> in true-scale relief you can run a thumb across.</li>
+  <li><strong>Made to order</strong> &mdash; built for one place, one time.</li>
+  <li><strong>Proof before print.</strong> We email the render first; nothing prints until you approve it.</li>
+  <li><strong>Edition 1 of 1.</strong> Printed once, for you, never resold.</li>
+  <li><strong>Ready to hang</strong>, mounted and shipped.</li>
+</ul>
+<p><strong>Ships in ~[X] weeks after you approve your proof. [EDIT]</strong> Free US shipping, tracking included.</p>
+<p><em>Real terrain &middot; Proof before print &middot; Edition 1 of 1.</em><br>Data: USGS 3DEP &middot; NOAA &middot; OpenStreetMap.</p>
+""".strip()
+
+# (page file, page title, page handle)
+PAGES = [
+    ("about.html", "About", "about"),
+    ("faq.html", "FAQ", "faq"),
+    ("shipping.html", "Shipping", "shipping"),
+    ("returns.html", "Returns", "returns"),
+    ("privacy.html", "Privacy Policy", "privacy-policy"),
+    ("terms.html", "Terms of Service", "terms-of-service"),
+    ("contact.html", "Contact", "contact-page"),
+]
+
+
+def die(msg):
+    print("ERROR: " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+if not STORE or not TOKEN:
+    die("Set SHOPIFY_STORE (xxx.myshopify.com) and SHOPIFY_ADMIN_TOKEN (shpat_...).")
+if not TOKEN.startswith("shpat_"):
+    print("WARNING: token does not start with 'shpat_'. The Admin API ACCESS token "
+          "(not the API key or secret key) is required — this will likely 401.\n")
+
+
+def api(method, path, body=None):
+    url = f"https://{STORE}/admin/api/{API}/{path}"
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("X-Shopify-Access-Token", TOKEN)
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read().decode() or "{}"
+            return r.status, json.loads(raw)
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode() or "{}"
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = {"raw": raw}
+        return e.code, payload
+    except Exception as e:
+        return 0, {"error": str(e)}
+
+
+def main():
+    print(f"Connecting to {STORE} ...")
+    st, shop = api("GET", "shop.json")
+    if st != 200:
+        die(f"Auth/connectivity failed ({st}): {json.dumps(shop)[:300]}\n"
+            "Confirm the token is a 'shpat_' Admin API access token with the right "
+            "scopes, and the store domain is correct.")
+    print(f"  OK — connected to '{shop['shop']['name']}'\n")
+
+    # ---------------- Product (draft) ----------------
+    print("Product:")
+    _, listing = api("GET", "products.json?limit=250&fields=id,handle,title")
+    existing = next((p for p in listing.get("products", []) if p.get("handle") == PRODUCT_HANDLE), None)
+    if existing:
+        print(f"  skip — already exists (id {existing['id']})")
+    else:
+        body = {"product": {
+            "title": PRODUCT_TITLE,
+            "handle": PRODUCT_HANDLE,
+            "body_html": PRODUCT_BODY_HTML,
+            "vendor": "Terrane",
+            "product_type": "Relief map",
+            "tags": "relief map, topographic, custom, made to order, gift",
+            "status": "draft",
+            "metafields_global_title_tag": 'Custom 3D-Printed Relief Map (8" × 8") — Real Terrain | Terrane',
+            "metafields_global_description_tag": "A made-to-order 8-inch relief map of any place, built from real USGS, NOAA, and OpenStreetMap data. You approve a proof before we print. Edition 1 of 1. $249.",
+            "variants": [{
+                "price": "249.00",
+                "sku": "TERRANE-RELIEF-8X8",
+                "requires_shipping": True,
+                "taxable": True,
+                "inventory_management": None,  # not tracked (made to order)
+            }],
+        }}
+        st, res = api("POST", "products.json", body)
+        if st in (200, 201):
+            print(f"  created (draft) id {res['product']['id']}")
+        else:
+            print(f"  FAILED ({st}): {json.dumps(res)[:300]}")
+        time.sleep(0.6)
+
+    # ---------------- Pages (unpublished) ----------------
+    print("\nPages (created unpublished):")
+    _, plist = api("GET", "pages.json?limit=250&fields=id,handle")
+    existing_handles = {p.get("handle") for p in plist.get("pages", [])}
+    for fname, title, handle in PAGES:
+        fpath = HERE / "pages" / fname
+        if not fpath.exists():
+            print(f"  skip {handle} — file missing: {fpath}")
+            continue
+        if handle in existing_handles:
+            print(f"  skip {handle} — already exists")
+            continue
+        html = fpath.read_text(encoding="utf-8")
+        body = {"page": {"title": title, "handle": handle, "body_html": html, "published": False}}
+        st, res = api("POST", "pages.json", body)
+        if st in (200, 201):
+            print(f"  created '{title}' (/pages/{handle})")
+        else:
+            print(f"  FAILED '{title}' ({st}): {json.dumps(res)[:200]}")
+        time.sleep(0.6)
+
+    # ---------------- Theme sections (non-destructive upload) ----------------
+    print("\nTheme sections:")
+    theme_id = THEME_ID
+    if not theme_id:
+        _, tl = api("GET", "themes.json")
+        main_theme = next((t for t in tl.get("themes", []) if t.get("role") == "main"), None)
+        if main_theme:
+            theme_id = str(main_theme["id"])
+            print(f"  using published theme '{main_theme['name']}' (id {theme_id})")
+        else:
+            print("  SKIP — could not find a theme; set SHOPIFY_THEME_ID and re-run.")
+            theme_id = None
+    else:
+        print(f"  using SHOPIFY_THEME_ID {theme_id}")
+
+    if theme_id:
+        for sec in sorted((HERE / "sections").glob("*.liquid")):
+            key = f"sections/{sec.name}"
+            body = {"asset": {"key": key, "value": sec.read_text(encoding="utf-8")}}
+            st, res = api("PUT", f"themes/{theme_id}/assets.json", body)
+            if st in (200, 201):
+                print(f"  uploaded {key}")
+            else:
+                print(f"  FAILED {key} ({st}): {json.dumps(res)[:200]}")
+            time.sleep(0.6)
+
+    print("\nDone.")
+    print("Next in the Shopify admin:")
+    print("  • Products: review the draft product, set weight + SEO, then set Active when ready.")
+    print("  • Online Store > Pages: review each page, then publish.")
+    print("  • Online Store > Themes > Customize: add the Terrane sections to the home page,")
+    print("    set brand colors/fonts, and point the 'Design your map' button at the studio.")
+
+
+if __name__ == "__main__":
+    main()
