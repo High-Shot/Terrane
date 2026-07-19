@@ -1,0 +1,248 @@
+{%- comment -%}
+  Terrane Hero — Dawn-compatible custom section.
+  Self-contained: paints its own dark-editorial palette (does not rely on Dawn's
+  color schemes). Studio buttons use the `studio_url` setting. Every image is an
+  image_picker with a dashed-placeholder empty state for the theme editor.
+{%- endcomment -%}
+
+<style>
+  #shopify-section-{{ section.id }} {
+    --t-bg-0: #0b1c29;
+    --t-bg-1: #0e2231;
+    --t-panel: #142c3e;
+    --t-cream: #f2ead6;
+    --t-cream-dim: #d8cfba;
+    --t-rust: #cd7b41;
+    --t-rust-bright: #e08b4c;
+    --t-slate: #8299ac;
+    --t-slate-dim: #607585;
+    --t-line: rgba(233,224,202,0.10);
+    --t-line-strong: rgba(233,224,202,0.18);
+    --t-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --t-body: 'Inter', system-ui, sans-serif;
+    --t-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+    background:
+      radial-gradient(1200px 600px at 70% 10%, rgba(205,123,65,0.10), transparent 60%),
+      linear-gradient(180deg, var(--t-bg-0), var(--t-bg-1));
+    color: var(--t-cream);
+    font-family: var(--t-body);
+  }
+  #shopify-section-{{ section.id }} .t-hero-wrap {
+    max-width: 1200px; margin: 0 auto; padding: 80px 24px;
+    display: grid; gap: 56px; align-items: center;
+  }
+  @media (min-width: 990px) {
+    #shopify-section-{{ section.id }} .t-hero-wrap { grid-template-columns: 1fr 1fr; padding: 112px 24px; }
+  }
+  #shopify-section-{{ section.id }} .t-hero-title {
+    font-family: var(--t-display); font-weight: 900; line-height: 0.94;
+    letter-spacing: -0.02em; font-size: clamp(3.2rem, 6vw, 5rem); margin: 0;
+  }
+  #shopify-section-{{ section.id }} .t-accent { color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-hero-body {
+    margin-top: 32px; color: var(--t-cream-dim); font-size: 1.05rem;
+    line-height: 1.65; max-width: 34rem;
+  }
+  #shopify-section-{{ section.id }} .t-btn-row { margin-top: 36px; display: flex; flex-wrap: wrap; gap: 16px; }
+  #shopify-section-{{ section.id }} .t-btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 14px 24px;
+    background: var(--t-rust); color: #1a0f07; font-weight: 700; text-decoration: none;
+    border-radius: 2px; border: 1px solid var(--t-rust); font-size: 0.95rem;
+  }
+  #shopify-section-{{ section.id }} .t-btn:hover { background: var(--t-rust-bright); border-color: var(--t-rust-bright); }
+  #shopify-section-{{ section.id }} .t-btn-ghost {
+    background: transparent; color: var(--t-cream); border: 1px solid var(--t-line-strong);
+  }
+  #shopify-section-{{ section.id }} .t-btn-ghost:hover { border-color: var(--t-rust); color: var(--t-rust-bright); }
+  #shopify-section-{{ section.id }} .t-eyebrow {
+    margin-top: 32px; font-family: var(--t-mono); text-transform: uppercase;
+    letter-spacing: 0.18em; font-size: 0.72rem; color: var(--t-slate-dim);
+  }
+  #shopify-section-{{ section.id }} .t-hero-media { position: relative; }
+  #shopify-section-{{ section.id }} .t-hero-frame {
+    position: relative; border-radius: 2px; overflow: hidden;
+    border: 1px solid var(--t-line-strong); box-shadow: 0 40px 80px -30px rgba(0,0,0,0.8);
+  }
+  #shopify-section-{{ section.id }} .t-hero-frame img { display: block; width: 100%; height: 440px; object-fit: cover; }
+  #shopify-section-{{ section.id }} .t-hero-overlay {
+    position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(11,28,41,0.9));
+  }
+  #shopify-section-{{ section.id }} .t-hero-caption {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 20px;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  }
+  #shopify-section-{{ section.id }} .t-cap-place { font-family: var(--t-display); font-weight: 700; font-size: 1.1rem; }
+  #shopify-section-{{ section.id }} .t-cap-coords { font-family: var(--t-mono); color: var(--t-rust); font-size: 0.72rem; margin-top: 4px; letter-spacing: 0.08em; }
+  #shopify-section-{{ section.id }} .t-cap-edition { font-family: var(--t-mono); color: var(--t-slate); font-size: 0.72rem; text-align: right; }
+  #shopify-section-{{ section.id }} .t-img-placeholder {
+    width: 100%; height: 440px; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 24px; border: 2px dashed var(--t-line-strong);
+    border-radius: 2px; color: var(--t-slate-dim); font-family: var(--t-mono);
+    font-size: 0.75rem; letter-spacing: 0.08em; background: rgba(20,44,62,0.4);
+  }
+  #shopify-section-{{ section.id }} .t-features {
+    border-top: 1px solid var(--t-line); border-bottom: 1px solid var(--t-line);
+    background: rgba(14,34,49,0.6);
+  }
+  #shopify-section-{{ section.id }} .t-features-grid {
+    max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, 1fr);
+  }
+  @media (min-width: 990px) { #shopify-section-{{ section.id }} .t-features-grid { grid-template-columns: repeat(4, 1fr); } }
+  #shopify-section-{{ section.id }} .t-feature {
+    display: flex; gap: 12px; padding: 32px 24px; border-left: 1px solid var(--t-line);
+  }
+  #shopify-section-{{ section.id }} .t-feature:first-child { border-left: 0; }
+  #shopify-section-{{ section.id }} .t-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--t-rust); margin-top: 6px; flex-shrink: 0; }
+  #shopify-section-{{ section.id }} .t-feature-title { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.72rem; color: var(--t-cream); }
+  #shopify-section-{{ section.id }} .t-feature-sub { color: var(--t-slate); font-size: 0.72rem; margin-top: 6px; }
+</style>
+
+<div class="t-hero-wrap">
+  <div>
+    <h1 class="t-hero-title">{{ section.settings.title }}</h1>
+    {%- if section.settings.body != blank -%}
+      <p class="t-hero-body">{{ section.settings.body }}</p>
+    {%- endif -%}
+    <div class="t-btn-row">
+      <a class="t-btn" href="{{ section.settings.studio_url }}">{{ section.settings.primary_label }} →</a>
+      {%- if section.settings.secondary_label != blank -%}
+        <a class="t-btn t-btn-ghost" href="{{ section.settings.secondary_url }}">{{ section.settings.secondary_label }}</a>
+      {%- endif -%}
+    </div>
+    {%- if section.settings.eyebrow != blank -%}
+      <div class="t-eyebrow">{{ section.settings.eyebrow }}</div>
+    {%- endif -%}
+  </div>
+
+  <div class="t-hero-media">
+    <div class="t-hero-frame">
+      {%- if section.settings.image != blank -%}
+        <img
+          src="{{ section.settings.image | image_url: width: 1200 }}"
+          alt="{{ section.settings.image.alt | default: section.settings.caption_place | escape }}"
+          width="1200" height="880" loading="eager">
+        <div class="t-hero-overlay"></div>
+      {%- else -%}
+        <div class="t-img-placeholder">Add hero image in theme editor<br>(a finished relief map)</div>
+      {%- endif -%}
+      {%- if section.settings.image != blank -%}
+        <div class="t-hero-caption">
+          <div>
+            <div class="t-cap-place">{{ section.settings.caption_place }}</div>
+            <div class="t-cap-coords">{{ section.settings.caption_coords }}</div>
+          </div>
+          <div class="t-cap-edition">Edition<br>1 of 1</div>
+        </div>
+      {%- endif -%}
+    </div>
+  </div>
+</div>
+
+{%- if section.blocks.size > 0 -%}
+  <div class="t-features">
+    <div class="t-features-grid">
+      {%- for block in section.blocks -%}
+        <div class="t-feature" {{ block.shopify_attributes }}>
+          <span class="t-dot"></span>
+          <div>
+            <div class="t-feature-title">{{ block.settings.title }}</div>
+            <div class="t-feature-sub">{{ block.settings.sub }}</div>
+          </div>
+        </div>
+      {%- endfor -%}
+    </div>
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Terrane Hero",
+  "tag": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Headline",
+      "default": "A place does not have to be famous to matter."
+    },
+    {
+      "type": "richtext",
+      "id": "body",
+      "label": "Body",
+      "default": "<p>The lake where every summer happened. The street that raised you. The trail you still bring up. Terrane builds it from real elevation and street data and prints it in relief, so the place holds a wall the way it holds you. You design it in the studio. Nothing prints until you say so.</p>"
+    },
+    {
+      "type": "text",
+      "id": "eyebrow",
+      "label": "Eyebrow",
+      "default": "Real terrain · Proof before print · Edition 1 of 1"
+    },
+    {
+      "type": "url",
+      "id": "studio_url",
+      "label": "Studio URL (Design your map)",
+      "default": "https://studio.terranemaps.com"
+    },
+    {
+      "type": "text",
+      "id": "primary_label",
+      "label": "Primary button label",
+      "default": "Design your map"
+    },
+    {
+      "type": "text",
+      "id": "secondary_label",
+      "label": "Secondary button label",
+      "default": "How it works"
+    },
+    {
+      "type": "url",
+      "id": "secondary_url",
+      "label": "Secondary button URL"
+    },
+    {
+      "type": "header",
+      "content": "Hero image"
+    },
+    {
+      "type": "image_picker",
+      "id": "image",
+      "label": "Hero image (finished relief map)"
+    },
+    {
+      "type": "text",
+      "id": "caption_place",
+      "label": "Image caption — place",
+      "default": "Fairhope, Alabama"
+    },
+    {
+      "type": "text",
+      "id": "caption_coords",
+      "label": "Image caption — coordinates",
+      "default": "30.5230 N, 87.9033 W"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "feature",
+      "name": "Feature",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Real terrain data" },
+        { "type": "text", "id": "sub", "label": "Subtitle", "default": "USGS · NOAA · OSM" }
+      ]
+    }
+  ],
+  "max_blocks": 4,
+  "presets": [
+    {
+      "name": "Terrane Hero",
+      "blocks": [
+        { "type": "feature", "settings": { "title": "Real terrain data", "sub": "USGS · NOAA · OSM" } },
+        { "type": "feature", "settings": { "title": "True scale", "sub": "Measured, not imagined" } },
+        { "type": "feature", "settings": { "title": "Proof before print", "sub": "You approve every detail" } },
+        { "type": "feature", "settings": { "title": "Edition 1 of 1", "sub": "Your file is never resold" } }
+      ]
+    }
+  ]
+}
+{% endschema %}

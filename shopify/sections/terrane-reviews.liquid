@@ -1,0 +1,97 @@
+{%- comment -%}
+  Terrane Reviews — customer testimonials. Each review is a block (quote, name,
+  location). Placeholder quotes carry "(EDIT)"; replace with real ones or a
+  reviews app. Self-contained dark-editorial styling scoped to section.id.
+{%- endcomment -%}
+
+<style>
+  #shopify-section-{{ section.id }} {
+    --t-bg-1: #0e2231;
+    --t-panel: #142c3e;
+    --t-cream: #f2ead6;
+    --t-cream-dim: #d8cfba;
+    --t-rust: #cd7b41;
+    --t-slate: #8299ac;
+    --t-slate-dim: #607585;
+    --t-line: rgba(233,224,202,0.10);
+    --t-line-strong: rgba(233,224,202,0.18);
+    --t-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --t-body: 'Inter', system-ui, sans-serif;
+    --t-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+    background: var(--t-bg-1); color: var(--t-cream); font-family: var(--t-body);
+    border-top: 1px solid var(--t-line);
+  }
+  #shopify-section-{{ section.id }} .t-wrap { max-width: 1200px; margin: 0 auto; padding: 96px 24px; }
+  #shopify-section-{{ section.id }} .t-kicker { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+  #shopify-section-{{ section.id }} .t-kicker .line { width: 40px; height: 1px; background: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-kicker .label { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-h2 {
+    font-family: var(--t-display); font-weight: 900; letter-spacing: -0.02em; line-height: 1.02;
+    font-size: clamp(2.2rem, 4vw, 3rem); max-width: 40rem; margin: 0;
+  }
+  #shopify-section-{{ section.id }} .t-grid { margin-top: 56px; display: grid; gap: 24px; }
+  @media (min-width: 750px) { #shopify-section-{{ section.id }} .t-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 990px) { #shopify-section-{{ section.id }} .t-grid { grid-template-columns: repeat(3, 1fr); } }
+  #shopify-section-{{ section.id }} .t-review { border: 1px solid var(--t-line); background: var(--t-panel); border-radius: 2px; padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+  #shopify-section-{{ section.id }} .t-quote-mark { font-family: var(--t-display); font-weight: 900; font-size: 2.4rem; line-height: 0.6; color: rgba(205,123,65,0.35); }
+  #shopify-section-{{ section.id }} .t-quote { color: var(--t-cream-dim); line-height: 1.6; flex: 1; }
+  #shopify-section-{{ section.id }} .t-meta { border-top: 1px solid var(--t-line); padding-top: 16px; }
+  #shopify-section-{{ section.id }} .t-name { font-family: var(--t-display); font-weight: 700; font-size: 0.95rem; }
+  #shopify-section-{{ section.id }} .t-loc { font-family: var(--t-mono); font-size: 0.7rem; letter-spacing: 0.08em; color: var(--t-slate-dim); margin-top: 4px; }
+</style>
+
+<div class="t-wrap">
+  <div class="t-kicker"><span class="line"></span><span class="label">{{ section.settings.kicker }}</span></div>
+  <h2 class="t-h2">{{ section.settings.heading }}</h2>
+
+  {%- if section.blocks.size > 0 -%}
+    <div class="t-grid">
+      {%- for block in section.blocks -%}
+        <figure class="t-review" {{ block.shopify_attributes }}>
+          <div class="t-quote-mark">&ldquo;</div>
+          <blockquote class="t-quote">{{ block.settings.quote }}</blockquote>
+          <figcaption class="t-meta">
+            <div class="t-name">{{ block.settings.name }}</div>
+            <div class="t-loc">{{ block.settings.location }}</div>
+          </figcaption>
+        </figure>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+</div>
+
+{% schema %}
+{
+  "name": "Terrane Reviews",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "kicker", "label": "Kicker", "default": "What people say" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "The wall gets the reaction." }
+  ],
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "It is the first thing everyone notices when they walk in. Nobody expects a map to have real hills. (EDIT)" },
+        { "type": "text", "id": "name", "label": "Name", "default": "First L. — EDIT" },
+        { "type": "text", "id": "location", "label": "Location", "default": "City, State — EDIT" }
+      ]
+    }
+  ],
+  "max_blocks": 9,
+  "presets": [
+    {
+      "name": "Terrane Reviews",
+      "blocks": [
+        { "type": "review", "settings": { "quote": "It is the first thing everyone notices when they walk in. Nobody expects a map to have real hills. (EDIT)", "name": "First L. — EDIT", "location": "City, State — EDIT" } },
+        { "type": "review", "settings": { "quote": "I gave the cabin lake to my dad for his retirement. He teared up. Worth every penny. (EDIT)", "name": "First L. — EDIT", "location": "City, State — EDIT" } },
+        { "type": "review", "settings": { "quote": "The proof step made it. I asked for the crop to move a little and they redid it, no fuss. (EDIT)", "name": "First L. — EDIT", "location": "City, State — EDIT" } },
+        { "type": "review", "settings": { "quote": "Shipping was quick and it arrived ready to hang. The relief is deeper than I imagined. (EDIT)", "name": "First L. — EDIT", "location": "City, State — EDIT" } },
+        { "type": "review", "settings": { "quote": "We printed the trail where we got engaged. It is the best thing on our wall. (EDIT)", "name": "First L. — EDIT", "location": "City, State — EDIT" } },
+        { "type": "review", "settings": { "quote": "Ordered one for our first house. The detail on our own street is unreal. (EDIT)", "name": "First L. — EDIT", "location": "City, State — EDIT" } }
+      ]
+    }
+  ]
+}
+{% endschema %}
