@@ -67,10 +67,14 @@ def die(msg):
 
 
 if not STORE or not TOKEN:
-    die("Set SHOPIFY_STORE (xxx.myshopify.com) and SHOPIFY_ADMIN_TOKEN (shpat_...).")
-if not TOKEN.startswith("shpat_"):
-    print("WARNING: token does not start with 'shpat_'. The Admin API ACCESS token "
-          "(not the API key or secret key) is required — this will likely 401.\n")
+    die("Set SHOPIFY_STORE (xxx.myshopify.com) and SHOPIFY_ADMIN_TOKEN "
+        "(an Admin API access token — from a legacy custom app, or minted by "
+        "oauth_setup.py on the new Dev Dashboard).")
+if TOKEN.startswith("shpss_") or TOKEN.startswith("shpca_"):
+    print("WARNING: SHOPIFY_ADMIN_TOKEN looks like an API SECRET/Client key, not an "
+          "ACCESS token. This will 401. On the new Dev Dashboard there is no static "
+          "token to reveal — run oauth_setup.py instead to mint one from your "
+          "Client ID + Client secret.\n")
 
 
 def api(method, path, body=None):
