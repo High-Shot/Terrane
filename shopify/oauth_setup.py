@@ -53,6 +53,10 @@ STORE = os.environ.get("SHOPIFY_STORE", "").strip()
 CLIENT_ID = os.environ.get("SHOPIFY_CLIENT_ID", "").strip()
 CLIENT_SECRET = os.environ.get("SHOPIFY_CLIENT_SECRET", "").strip()
 PORT = int(os.environ.get("SHOPIFY_OAUTH_PORT", "3456").strip() or "3456")
+# Interface the local callback server binds to. Default localhost (safe, for a
+# native run). Inside a container you must bind 0.0.0.0 so a `-p 8787:8787`
+# port mapping can reach it; the browser still redirects to localhost on the host.
+BIND = os.environ.get("SHOPIFY_OAUTH_BIND", "localhost").strip() or "localhost"
 SCOPES = os.environ.get(
     "SHOPIFY_SCOPES",
     "write_products,read_products,write_content,read_content,"
@@ -114,9 +118,9 @@ def get_access_token():
     })
 
     try:
-        server = HTTPServer(("localhost", PORT), _CallbackHandler)
+        server = HTTPServer((BIND, PORT), _CallbackHandler)
     except OSError as e:
-        die(f"Could not bind localhost:{PORT} ({e}). Set SHOPIFY_OAUTH_PORT to a free "
+        die(f"Could not bind {BIND}:{PORT} ({e}). Set SHOPIFY_OAUTH_PORT to a free "
             "port and add http://localhost:<port>/callback to the app's Redirect URLs.")
     server.oauth_code = None
     server.oauth_state = None
