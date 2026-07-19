@@ -35,18 +35,30 @@ THEME_ID = os.environ.get("SHOPIFY_THEME_ID", "").strip()
 PRODUCT_HANDLE = "custom-relief-map-8x8"
 PRODUCT_TITLE = 'Custom 3D-Printed Relief Map — 8" × 8"'
 PRODUCT_BODY_HTML = """
-<p><strong>The place that made you, built from real terrain data and printed in relief.</strong></p>
-<p>Terrane builds your map from the same public datasets surveyors use &mdash; <strong>elevation from USGS 3DEP, water from NOAA, roads and place names from OpenStreetMap</strong>. We resolve your place to exact coordinates and build the geometry from measurements, not artistic license.</p>
-<h3>What you get</h3>
+<p><strong>A place does not have to be famous to matter.</strong></p>
+<p>The lake where every summer happened. The street that raised you. The trail you still bring up. Terrane builds it from real elevation and street data and prints it in relief, so the place holds a wall the way it holds you. You design it in the studio. Nothing prints until you say so.</p>
+<h3>The terrain is not decoration. It is measured.</h3>
+<p>Every model starts from the same public datasets surveyors and hydrographers use. We resolve your place to exact coordinates and build the geometry from measurements, not artistic license. If your creek bends, the model bends with it.</p>
 <ul>
-  <li><strong>8&quot; &times; 8&quot; square</strong> in true-scale relief you can run a thumb across.</li>
-  <li><strong>Made to order</strong> &mdash; built for one place, one time.</li>
-  <li><strong>Proof before print.</strong> We email the render first; nothing prints until you approve it.</li>
-  <li><strong>Edition 1 of 1.</strong> Printed once, for you, never resold.</li>
-  <li><strong>Ready to hang</strong>, mounted and shipped.</li>
+  <li><strong>Elevation &middot; USGS 3DEP.</strong> Aerial lidar accurate enough to catch the rise behind your house.</li>
+  <li><strong>Water &middot; NOAA.</strong> Coastlines, bays, and lake beds sit where the water actually sits.</li>
+  <li><strong>Streets &middot; OpenStreetMap.</strong> Your cul-de-sac counts as much as Everest. It just has better parking.</li>
 </ul>
-<p><strong>Ships in ~[X] weeks after you approve your proof. [EDIT]</strong> Free US shipping, tracking included.</p>
-<p><em>Real terrain &middot; Proof before print &middot; Edition 1 of 1.</em><br>Data: USGS 3DEP &middot; NOAA &middot; OpenStreetMap.</p>
+<h3>Edition 1 of 1</h3>
+<ul>
+  <li>The second line of the legend is yours &mdash; a date, a name, the reason. We print it and never ask.</li>
+  <li>Custom designs are printed once, for you. We never reproduce or resell your file.</li>
+  <li>Coordinates are resolved and recorded to four decimal places.</li>
+  <li>Scale is stated as a true ratio, computed from your frame and the ground it covers.</li>
+</ul>
+<h3>How it works</h3>
+<ol>
+  <li><strong>Point to your place.</strong> Search an address or city, enter coordinates, or upload a GPX file. If you can point to it, we can build it.</li>
+  <li><strong>Frame it.</strong> Set the crop and orientation. The legend updates live as you move &mdash; coordinates, scale, the works.</li>
+  <li><strong>Approve the proof.</strong> We build the final render from survey data and email it to you before anything prints. No surprise mountains.</li>
+  <li><strong>We print it once.</strong> Built layer by layer, inspected, mounted, and shipped. Edition 1 of 1, and it stays that way.</li>
+</ol>
+<p><strong>8&quot; &times; 8&quot; square, made to order.</strong> Real terrain &middot; Proof before print &middot; Edition 1 of 1.<br>Data: USGS 3DEP &middot; NOAA &middot; OpenStreetMap.</p>
 """.strip()
 
 # (page file, page title, page handle)
