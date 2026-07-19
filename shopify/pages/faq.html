@@ -1,91 +1,64 @@
-<!-- Terrane — FAQ page. Paste into a Shopify Page via the "< > Show HTML" editor.
-     Q&As ported from frontend/src/data/faq.js as <details>/<summary>.
-     Confirm every "(EDIT)" answer before launch. -->
-<section class="terrane-page terrane-faq">
-  <p class="terrane-eyebrow">Answers</p>
-  <h1 class="terrane-page-title">Frequently asked questions</h1>
+<!-- Terrane — FAQ. Shopify Page body_html. Native <details> accordion. -->
+<div class="terrane-faq-list">
+  <details>
+    <summary><strong>What exactly is a Terrane map?</strong></summary>
+    <p>A made-to-order, 3D-printed relief model of a real place &mdash; an 8&quot; &times; 8&quot; square you can hang on the wall and run a thumb across. The terrain is raised in true scale, built from real elevation and street data, not a flat print of a map.</p>
+  </details>
 
-  <div class="terrane-faq-list">
-    <details class="terrane-faq-item">
-      <summary>How long does it take to get my map?</summary>
-      <p>
-        Every map is made to order. After you approve your proof, production and
-        shipping typically take about X weeks. We will confirm the exact timeline
-        before you order. (EDIT)
-      </p>
-    </details>
+  <details>
+    <summary><strong>Where does the data come from?</strong></summary>
+    <p>Elevation from the USGS 3D Elevation Program (aerial lidar), water and shorelines from NOAA, and streets and place names from OpenStreetMap. We resolve your place to exact coordinates and build the geometry from those measurements.</p>
+  </details>
 
-    <details class="terrane-faq-item">
-      <summary>How much is shipping and where do you ship?</summary>
-      <p>
-        We currently ship within the United States, with free standard shipping
-        included. International shipping may be available on request. Confirm your
-        shipping regions, carriers, and any surcharges here. (EDIT)
-      </p>
-    </details>
+  <details>
+    <summary><strong>How accurate is it?</strong></summary>
+    <p>Coordinates are resolved and recorded to four decimal places, and the scale is stated as a true ratio computed from your frame and the ground it covers. The shape of the land is measured, not stylized.</p>
+  </details>
 
-    <details class="terrane-faq-item">
-      <summary>What places can you make? Is my town covered?</summary>
-      <p>
-        If you can point to it on a map, we can almost certainly build it. Terrain
-        comes from public USGS, NOAA, and OpenStreetMap data covering the U.S. and
-        most of the world. Very remote areas may have coarser data — note any
-        coverage limits here. (EDIT)
-      </p>
-    </details>
+  <details>
+    <summary><strong>What is the proof, and when do I see it?</strong></summary>
+    <p>After you frame your place in the studio, we build the final render from survey data and email you a proof to review. Nothing is printed until you approve it &mdash; no surprise mountains.</p>
+  </details>
 
-    <details class="terrane-faq-item">
-      <summary>What material is it, and how deep is the relief?</summary>
-      <p>
-        Maps are 3D printed in durable PLA and finished by hand. The vertical
-        relief is exaggerated so the terrain reads clearly on a wall. Confirm the
-        exact material, finish options, mounting, and relief/exaggeration details
-        here. (EDIT)
-      </p>
-    </details>
+  <details>
+    <summary><strong>Can I put a name, date, or message on it?</strong></summary>
+    <p>Yes. The second line of the legend is yours &mdash; a name, a date, the reason. We print it and never ask.</p>
+  </details>
 
-    <details class="terrane-faq-item">
-      <summary>How does the proof and approval process work?</summary>
-      <p>
-        Nothing prints until you say so. We build the final render from survey
-        data and email it to you first. You review the crop, scale, and legend,
-        and request changes if needed. Only after you approve does the map go on
-        the printer. (EDIT)
-      </p>
-    </details>
+  <details>
+    <summary><strong>What size is it, and how much?</strong></summary>
+    <p>One size: an 8&quot; &times; 8&quot; square, $249, made to order. Simple on purpose.</p>
+  </details>
 
-    <details class="terrane-faq-item">
-      <summary>What is your return and remake policy?</summary>
-      <p>
-        Because each map is custom and printed once, we focus on getting it right
-        before anything prints — that is what the proof step is for. If your order
-        arrives damaged or is not what you approved, we will remake or refund it.
-        Confirm the exact return window and conditions here. (EDIT)
-      </p>
-    </details>
+  <details>
+    <summary><strong>What is it made of?</strong></summary>
+    <p>It is 3D printed layer by layer in durable PLA, finished by hand, and mounted ready to hang.</p>
+  </details>
 
-    <details class="terrane-faq-item">
-      <summary>Can I send it as a gift?</summary>
-      <p>
-        Yes. You can add a custom second legend line (a name, date, or message),
-        ship directly to the recipient, and time it to an occasion. Confirm
-        gift-note limits, gift shipping, and lead times for dated occasions here.
-        (EDIT)
-      </p>
-    </details>
+  <details>
+    <summary><strong>How long does it take?</strong></summary>
+    <p>Because each map is built for one place, one time, it typically ships within one week of proof approval. You will get tracking when it is on the way.</p>
+  </details>
 
-    <details class="terrane-faq-item">
-      <summary>What sizes and prices are available?</summary>
-      <p>
-        The current format is an 8 by 8 inch relief map, made to order. Pricing
-        and any additional sizes are shown in the studio. Confirm sizes and prices
-        here. (EDIT)
-      </p>
-    </details>
-  </div>
+  <details>
+    <summary><strong>Do you ship internationally?</strong></summary>
+    <p>We currently ship within the United States with free, tracked shipping. International shipping is not offered yet &mdash; email us and we will let you know when it is.</p>
+  </details>
 
-  <p class="terrane-cta-row">
-    <a class="terrane-btn" href="https://studio.terranemaps.com">Open the studio →</a>
-    <a class="terrane-btn terrane-btn-ghost" href="/pages/contact">Still have a question?</a>
-  </p>
-</section>
+  <details>
+    <summary><strong>Can I return it?</strong></summary>
+    <p>Because every map is made to order for a single place, we do not accept returns or exchanges. If your map arrives damaged or defective, we will remake or refund it, free, within 30 days of delivery. See <a href="/pages/returns">Returns</a>.</p>
+  </details>
+
+  <details>
+    <summary><strong>Do you reuse or resell my design?</strong></summary>
+    <p>Never. Your design is an edition of one &mdash; printed a single time, for you, and never reproduced or resold.</p>
+  </details>
+
+  <details>
+    <summary><strong>What if I can&rsquo;t find my place?</strong></summary>
+    <p>Search an address or city, enter coordinates, or upload a GPX file. If you can point to it, we can build it &mdash; and if you get stuck, email <a href="mailto:barcus@terranemaps.com">barcus@terranemaps.com</a> and we will help you frame it.</p>
+  </details>
+</div>
+
+<p><a href="https://studio.terranemaps.com">Design your map &rarr;</a> &nbsp;&middot;&nbsp; <a href="/pages/contact-page">Still have a question?</a></p>
