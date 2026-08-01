@@ -1,0 +1,120 @@
+{%- comment -%}
+  Terrane Data — "Built from real data" section. Three data-source cards as
+  blocks, each with its own image_picker (dashed placeholder empty state).
+  Self-contained dark-editorial styling scoped to section.id.
+{%- endcomment -%}
+
+<style>
+  #shopify-section-{{ section.id }} {
+    --t-bg-0: #0b1c29;
+    --t-panel: #142c3e;
+    --t-cream: #f2ead6;
+    --t-cream-dim: #d8cfba;
+    --t-rust: #cd7b41;
+    --t-slate: #8299ac;
+    --t-slate-dim: #607585;
+    --t-line: rgba(233,224,202,0.10);
+    --t-line-strong: rgba(233,224,202,0.18);
+    --t-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --t-body: 'Inter', system-ui, sans-serif;
+    --t-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+    background: var(--t-bg-0); color: var(--t-cream); font-family: var(--t-body);
+  }
+  #shopify-section-{{ section.id }} .t-wrap { max-width: 1200px; margin: 0 auto; padding: 96px 24px; }
+  #shopify-section-{{ section.id }} .t-kicker { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+  #shopify-section-{{ section.id }} .t-kicker span.line { width: 40px; height: 1px; background: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-kicker span.label { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-h2 {
+    font-family: var(--t-display); font-weight: 900; letter-spacing: -0.02em;
+    line-height: 1.02; font-size: clamp(2.4rem, 4.5vw, 3.2rem); max-width: 48rem; margin: 0;
+  }
+  #shopify-section-{{ section.id }} .t-h2 .muted { color: var(--t-slate); }
+  #shopify-section-{{ section.id }} .t-lede { margin-top: 28px; color: var(--t-cream-dim); line-height: 1.7; max-width: 42rem; }
+  #shopify-section-{{ section.id }} .t-grid { margin-top: 64px; display: grid; gap: 24px; }
+  @media (min-width: 750px) { #shopify-section-{{ section.id }} .t-grid { grid-template-columns: repeat(3, 1fr); } }
+  #shopify-section-{{ section.id }} .t-card { border: 1px solid var(--t-line); background: var(--t-panel); border-radius: 2px; overflow: hidden; }
+  #shopify-section-{{ section.id }} .t-card-media { position: relative; height: 192px; overflow: hidden; }
+  #shopify-section-{{ section.id }} .t-card-media img { width: 100%; height: 100%; object-fit: cover; }
+  #shopify-section-{{ section.id }} .t-card-media .ov { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(11,28,41,0.2), rgba(11,28,41,0.85)); }
+  #shopify-section-{{ section.id }} .t-img-placeholder {
+    width: 100%; height: 192px; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 16px; border: 2px dashed var(--t-line-strong);
+    color: var(--t-slate-dim); font-family: var(--t-mono); font-size: 0.72rem; letter-spacing: 0.06em;
+    background: rgba(20,44,62,0.4);
+  }
+  #shopify-section-{{ section.id }} .t-card-body { padding: 24px; }
+  #shopify-section-{{ section.id }} .t-tag { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.7rem; color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-card-title { font-family: var(--t-display); font-weight: 700; font-size: 1.25rem; margin: 12px 0 0; }
+  #shopify-section-{{ section.id }} .t-card-text { color: var(--t-slate); font-size: 0.88rem; line-height: 1.6; margin-top: 12px; }
+</style>
+
+<div class="t-wrap">
+  <div class="t-kicker"><span class="line"></span><span class="label">{{ section.settings.kicker }}</span></div>
+  <h2 class="t-h2">{{ section.settings.heading }} <span class="muted">{{ section.settings.heading_muted }}</span></h2>
+  {%- if section.settings.lede != blank -%}
+    <div class="t-lede">{{ section.settings.lede }}</div>
+  {%- endif -%}
+
+  {%- if section.blocks.size > 0 -%}
+    <div class="t-grid">
+      {%- for block in section.blocks -%}
+        <div class="t-card" {{ block.shopify_attributes }}>
+          <div class="t-card-media">
+            {%- if block.settings.image != blank -%}
+              <img src="{{ block.settings.image | image_url: width: 800 }}" alt="{{ block.settings.title | escape }}" width="800" height="384" loading="lazy">
+              <div class="ov"></div>
+            {%- else -%}
+              <div class="t-img-placeholder">Add image in theme editor</div>
+            {%- endif -%}
+          </div>
+          <div class="t-card-body">
+            <div class="t-tag">{{ block.settings.tag }}</div>
+            <h3 class="t-card-title">{{ block.settings.title }}</h3>
+            <p class="t-card-text">{{ block.settings.body }}</p>
+          </div>
+        </div>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+</div>
+
+{% schema %}
+{
+  "name": "Terrane Data",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "kicker", "label": "Kicker", "default": "Built from real data" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "The terrain is not decoration." },
+    { "type": "text", "id": "heading_muted", "label": "Heading (muted second line)", "default": "It is measured." },
+    {
+      "type": "richtext",
+      "id": "lede",
+      "label": "Lede",
+      "default": "<p>Because when it is your place, close enough is not. Every model starts from the same public datasets that surveyors and hydrographers use. We resolve your place to exact coordinates and build the geometry from measurements, not artistic license. If your creek bends, the model bends with it.</p>"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "source",
+      "name": "Data source",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" },
+        { "type": "text", "id": "tag", "label": "Tag", "default": "Elevation · USGS 3DEP" },
+        { "type": "text", "id": "title", "label": "Title", "default": "Lidar terrain" },
+        { "type": "textarea", "id": "body", "label": "Body", "default": "Aerial lidar from the U.S. Geological Survey's 3D Elevation Program, accurate enough to catch the rise behind your house. We check it more times than we should." }
+      ]
+    }
+  ],
+  "max_blocks": 6,
+  "presets": [
+    {
+      "name": "Terrane Data",
+      "blocks": [
+        { "type": "source", "settings": { "tag": "Elevation · USGS 3DEP", "title": "Lidar terrain", "body": "Aerial lidar from the U.S. Geological Survey's 3D Elevation Program, accurate enough to catch the rise behind your house. We check it more times than we should." } },
+        { "type": "source", "settings": { "tag": "Water · NOAA", "title": "Bathymetry and shorelines", "body": "Coastlines, bays, and lake beds come from NOAA survey data, so the water on your map sits where the water actually sits." } },
+        { "type": "source", "settings": { "tag": "Streets · OpenStreetMap", "title": "Roads and places", "body": "Street geometry and place names from OpenStreetMap. Your cul-de-sac counts as much as Everest. It just has better parking." } }
+      ]
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,86 @@
+{%- comment -%}
+  Terrane CTA — closing centered call-to-action with a rust glow, using the
+  `studio_url` setting for the "Design your map" button. Scoped dark-editorial
+  styling. Optional background image_picker with dashed-placeholder empty state.
+{%- endcomment -%}
+
+<style>
+  #shopify-section-{{ section.id }} {
+    --t-bg-0: #0b1c29;
+    --t-cream: #f2ead6;
+    --t-rust: #cd7b41;
+    --t-rust-bright: #e08b4c;
+    --t-slate: #8299ac;
+    --t-line-strong: rgba(233,224,202,0.18);
+    --t-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --t-body: 'Inter', system-ui, sans-serif;
+    --t-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+    position: relative; overflow: hidden;
+    background: var(--t-bg-0); color: var(--t-cream); font-family: var(--t-body);
+  }
+  #shopify-section-{{ section.id }} .t-glow {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(900px 500px at 50% 30%, rgba(205,123,65,0.12), transparent 65%);
+  }
+  #shopify-section-{{ section.id }} .t-bgimg { position: absolute; inset: 0; }
+  #shopify-section-{{ section.id }} .t-bgimg img { width: 100%; height: 100%; object-fit: cover; opacity: 0.18; }
+  #shopify-section-{{ section.id }} .t-img-placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 16px; border: 2px dashed var(--t-line-strong);
+    color: rgba(96,117,133,0.6); font-family: var(--t-mono); font-size: 0.7rem; letter-spacing: 0.06em;
+  }
+  #shopify-section-{{ section.id }} .t-wrap { position: relative; max-width: 1200px; margin: 0 auto; padding: 112px 24px; text-align: center; }
+  #shopify-section-{{ section.id }} .t-eyebrow { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.16em; font-size: 0.72rem; color: var(--t-slate); }
+  #shopify-section-{{ section.id }} .t-h2 {
+    font-family: var(--t-display); font-weight: 900; letter-spacing: -0.02em; line-height: 1.0;
+    font-size: clamp(2.8rem, 6vw, 4.2rem); margin: 20px 0 0;
+  }
+  #shopify-section-{{ section.id }} .t-h2 .accent { color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-cta-row { margin-top: 40px; display: flex; justify-content: center; }
+  #shopify-section-{{ section.id }} .t-btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 15px 28px;
+    background: var(--t-rust); color: #1a0f07; font-weight: 700; text-decoration: none;
+    border-radius: 2px; border: 1px solid var(--t-rust); font-size: 1rem;
+  }
+  #shopify-section-{{ section.id }} .t-btn:hover { background: var(--t-rust-bright); border-color: var(--t-rust-bright); }
+</style>
+
+<div class="t-glow"></div>
+{%- if section.settings.background_image != blank -%}
+  <div class="t-bgimg">
+    <img src="{{ section.settings.background_image | image_url: width: 1600 }}" alt="" width="1600" height="700" loading="lazy">
+  </div>
+{%- elsif section.settings.show_bg_placeholder -%}
+  <div class="t-img-placeholder">Optional background image — add in theme editor</div>
+{%- endif -%}
+
+<div class="t-wrap">
+  {%- if section.settings.eyebrow != blank -%}
+    <p class="t-eyebrow">{{ section.settings.eyebrow }}</p>
+  {%- endif -%}
+  <h2 class="t-h2">{{ section.settings.heading }} <span class="accent">{{ section.settings.heading_accent }}</span> {{ section.settings.heading_tail }}</h2>
+  <div class="t-cta-row">
+    <a class="t-btn" href="{{ section.settings.studio_url }}">{{ section.settings.button_label }} →</a>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Terrane CTA",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Some gifts are flat." },
+    { "type": "text", "id": "heading", "label": "Heading (start)", "default": "This is" },
+    { "type": "text", "id": "heading_accent", "label": "Heading (accent word)", "default": "not" },
+    { "type": "text", "id": "heading_tail", "label": "Heading (end)", "default": "one." },
+    { "type": "url", "id": "studio_url", "label": "Studio URL", "default": "https://studio.terranemaps.com" },
+    { "type": "text", "id": "button_label", "label": "Button label", "default": "Design your map" },
+    { "type": "header", "content": "Background (optional)" },
+    { "type": "image_picker", "id": "background_image", "label": "Background image" },
+    { "type": "checkbox", "id": "show_bg_placeholder", "label": "Show dashed placeholder when no image", "default": false }
+  ],
+  "presets": [
+    { "name": "Terrane CTA" }
+  ]
+}
+{% endschema %}

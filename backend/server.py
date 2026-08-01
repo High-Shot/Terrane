@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Any, Dict
 import uuid
 import math
+import smtplib
+import asyncio
 import xml.etree.ElementTree as ET
+from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
 import httpx
 import bcrypt
@@ -37,6 +40,34 @@ PAYPAL_BASE = 'https://api-m.paypal.com' if PAYPAL_MODE == 'live' else 'https://
 PAYPAL_ENABLED = bool(PAYPAL_CLIENT_ID and PAYPAL_SECRET)
 
 MAP_PRICE = 249.00
+
+# Build-request fulfillment lifecycle. Admins may set any of these directly
+# (transition-agnostic); every change appends {status, at} to status_history.
+ALLOWED_STATUSES = ["requested", "proof_sent", "approved", "printing", "shipped", "cancelled"]
+
+# First-party analytics (privacy-light, no third parties): only these event
+# names are accepted by the public POST /api/events beacon.
+EVENT_NAMES = {"pageview", "studio_opened", "place_searched", "build_request_submitted", "export_download", "proof_approved"}
+
+# Guard against silently recording $0 "demo" orders in production. Demo checkout
+# (used when no PayPal keys are set) is only allowed when explicitly enabled.
+ALLOW_DEMO_CHECKOUT = os.environ.get('ALLOW_DEMO_CHECKOUT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+
+# Email config (generic SMTP so any provider works via env). Leave SMTP_HOST
+# blank to disable email — build requests are still saved regardless.
+SMTP_HOST = os.environ.get('SMTP_HOST', '').strip()
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587').strip() or '587')
+SMTP_USER = os.environ.get('SMTP_USER', '').strip()
+SMTP_PASS = os.environ.get('SMTP_PASS', '').strip()
+SMTP_FROM = os.environ.get('SMTP_FROM', SMTP_USER).strip()
+SMTP_STARTTLS = os.environ.get('SMTP_STARTTLS', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+PROOF_NOTIFY_EMAIL = os.environ.get('PROOF_NOTIFY_EMAIL', '').strip()
+CONTACT_NOTIFY_EMAIL = os.environ.get('CONTACT_NOTIFY_EMAIL', '').strip()
+ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()]
+EMAIL_ENABLED = bool(SMTP_HOST and SMTP_FROM)
+
+# Public site origin used to build customer-facing links in emails.
+SITE_URL = os.environ.get('SITE_URL', 'https://terranemaps.com').strip().rstrip('/')
 
 # Auth config
 JWT_SECRET = os.environ.get('JWT_SECRET', 'dev-secret-change-me')
@@ -77,12 +108,20 @@ class Design(BaseModel):
     lng: float
     mode: str = "relief"
     style: str = "harbor"
-    size: str = "12x16"
-    orientation: str = "portrait"
+    size: str = "8x8"
+    orientation: str = "square"
     elev: Optional[float] = None
     image: Optional[str] = ""
+    bbox: Optional[Any] = None
+    zoom: Optional[float] = None
+    pitch: Optional[float] = None
+    bearing: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
+    theme: Optional[str] = None
+    layers: Optional[Any] = None
+    distance_m: Optional[float] = None
+    dms: Optional[bool] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -94,17 +133,55 @@ class DesignCreate(BaseModel):
     lng: float
     mode: str = "relief"
     style: str = "harbor"
-    size: str = "12x16"
-    orientation: str = "portrait"
+    size: str = "8x8"
+    orientation: str = "square"
     elev: Optional[float] = None
     image: Optional[str] = ""
+    bbox: Optional[Any] = None
+    zoom: Optional[float] = None
+    pitch: Optional[float] = None
+    bearing: Optional[float] = None
     route_id: Optional[str] = None
     route_color: Optional[str] = "#cd7b41"
+    theme: Optional[str] = None
+    layers: Optional[Any] = None
+    distance_m: Optional[float] = None
+    dms: Optional[bool] = None
 
 
 class OrderCreate(BaseModel):
     client_id: str
     design: Dict[str, Any]
+    build_request_id: Optional[str] = None
+
+
+class BuildRequestCreate(BaseModel):
+    client_id: str
+    name: str
+    email: EmailStr
+    message: Optional[str] = ""
+    design: Dict[str, Any]
+
+
+class BuildRequestAdminPatch(BaseModel):
+    status: Optional[str] = None
+    proof_url: Optional[str] = None
+    note: Optional[str] = None
+    tracking_number: Optional[str] = None
+
+
+class EventCreate(BaseModel):
+    name: str
+    path: Optional[str] = ""
+    props: Optional[Dict[str, Any]] = None
+    client_id: Optional[str] = None
+
+
+class ContactCreate(BaseModel):
+    name: str
+    email: EmailStr
+    message: str
+    client_id: Optional[str] = None
 
 
 class CaptureBody(BaseModel):
@@ -217,6 +294,36 @@ async def paypal_token() -> str:
         )
         r.raise_for_status()
         return r.json()["access_token"]
+
+
+# ----------------------------- Email (best-effort, provider-agnostic SMTP) -----------------------------
+def _send_email_sync(to: str, subject: str, body: str) -> None:
+    """Blocking SMTP send. Raises on failure; callers wrap in try/except."""
+    msg = EmailMessage()
+    msg["From"] = SMTP_FROM
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.set_content(body)
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+        if SMTP_STARTTLS:
+            s.starttls()
+        if SMTP_USER and SMTP_PASS:
+            s.login(SMTP_USER, SMTP_PASS)
+        s.send_message(msg)
+
+
+async def send_email(to: str, subject: str, body: str) -> bool:
+    """Best-effort email. Returns False (and logs) when disabled or on error;
+    never raises so callers can treat email as non-critical."""
+    if not EMAIL_ENABLED or not to:
+        logger.info(f"[email disabled] would send to={to!r} subject={subject!r}")
+        return False
+    try:
+        await asyncio.to_thread(_send_email_sync, to, subject, body)
+        return True
+    except Exception as e:
+        logger.error(f"email send failed to={to!r}: {e}")
+        return False
 
 
 def _haversine_km(a, b):
@@ -530,40 +637,64 @@ async def list_designs(client_id: Optional[str] = Query(None), user=Depends(get_
 
 
 @api_router.delete("/designs/{design_id}")
-async def delete_design(design_id: str):
-    res = await db.designs.delete_one({"id": design_id})
-    if res.deleted_count == 0:
+async def delete_design(design_id: str, client_id: Optional[str] = Query(None), user=Depends(get_optional_user)):
+    doc = await db.designs.find_one({"id": design_id})
+    if not doc:
         raise HTTPException(status_code=404, detail="Design not found")
+    # Ownership check: a user-owned design requires the matching signed-in user;
+    # a guest design requires the matching client_id. Prevents deleting others' designs.
+    owner_uid = doc.get("user_id")
+    authorized = (
+        (owner_uid is not None and user is not None and user.get("id") == owner_uid)
+        or (owner_uid is None and client_id is not None and client_id == doc.get("client_id"))
+    )
+    if not authorized:
+        raise HTTPException(status_code=403, detail="You can only delete your own designs")
+    await db.designs.delete_one({"id": design_id})
     return {"ok": True}
 
 
 @api_router.post("/orders")
 async def create_order(payload: OrderCreate, user=Depends(get_optional_user)):
     order_id = str(uuid.uuid4())
+
+    # A linked build request (approval-at-payment flow) drives the price and
+    # enriches the order with the full design captured at request time.
+    build_req = None
+    if payload.build_request_id:
+        build_req = await db.build_requests.find_one({"id": payload.build_request_id})
+    amount = float(build_req.get("price") or MAP_PRICE) if build_req else MAP_PRICE
+    currency = (build_req.get("currency") if build_req else None) or "USD"
+
     base = {
         "id": order_id,
         "client_id": payload.client_id,
-        "design": payload.design,
-        "amount": MAP_PRICE,
-        "currency": "USD",
+        "design": (build_req.get("design") if build_req else None) or payload.design,
+        "amount": amount,
+        "currency": currency,
         "status": "pending",
         "proof_requested": True,
         "created_at": now_iso(),
     }
+    if build_req:
+        base["build_request_id"] = build_req["id"]
     if user:
         base["user_id"] = user["id"]
 
     if not PAYPAL_ENABLED:
+        if not ALLOW_DEMO_CHECKOUT:
+            # Never silently record a $0 "captured" order when payments aren't configured.
+            raise HTTPException(status_code=503, detail="Checkout is not available right now. Please contact us to complete your order.")
         base["demo"] = True
         base["paypal_order_id"] = None
         await db.orders.insert_one(base)
         return {"order_id": order_id, "paypal_order_id": None, "status": "pending",
-                "amount": MAP_PRICE, "currency": "USD", "demo": True}
+                "amount": amount, "currency": currency, "demo": True}
 
     # Real PayPal order
     try:
         token = await paypal_token()
-        place = payload.design.get("name", "Custom map")
+        place = base["design"].get("name", "Custom map")
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.post(
                 f"{PAYPAL_BASE}/v2/checkout/orders",
@@ -573,7 +704,7 @@ async def create_order(payload: OrderCreate, user=Depends(get_optional_user)):
                     "purchase_units": [{
                         "reference_id": order_id,
                         "description": f"Terrane relief map — {place}"[:127],
-                        "amount": {"currency_code": "USD", "value": f"{MAP_PRICE:.2f}"},
+                        "amount": {"currency_code": currency, "value": f"{amount:.2f}"},
                     }],
                 },
             )
@@ -583,7 +714,7 @@ async def create_order(payload: OrderCreate, user=Depends(get_optional_user)):
         base["paypal_order_id"] = pp["id"]
         await db.orders.insert_one(base)
         return {"order_id": order_id, "paypal_order_id": pp["id"], "status": "pending",
-                "amount": MAP_PRICE, "currency": "USD", "demo": False}
+                "amount": amount, "currency": currency, "demo": False}
     except Exception as e:
         logger.error(f"paypal create error: {e}")
         raise HTTPException(status_code=502, detail="Could not create PayPal order")
@@ -597,6 +728,7 @@ async def capture_order(order_id: str, body: CaptureBody):
 
     if order.get("demo") or not PAYPAL_ENABLED:
         await db.orders.update_one({"id": order_id}, {"$set": {"status": "captured", "captured_at": now_iso()}})
+        await _post_capture_hooks(order)
         return {"order_id": order_id, "status": "captured", "demo": True}
 
     try:
@@ -611,6 +743,8 @@ async def capture_order(order_id: str, body: CaptureBody):
             pp = r.json()
         status = "paid" if pp.get("status") == "COMPLETED" else pp.get("status", "pending")
         await db.orders.update_one({"id": order_id}, {"$set": {"status": status, "captured_at": now_iso(), "paypal_capture": pp.get("status")}})
+        if status == "paid":
+            await _post_capture_hooks(order)
         return {"order_id": order_id, "status": status, "demo": False}
     except Exception as e:
         logger.error(f"paypal capture error: {e}")
@@ -624,6 +758,337 @@ async def get_order(order_id: str):
         raise HTTPException(status_code=404, detail="Order not found")
     order.pop("_id", None)
     return order
+
+
+# ----------------------------- Build requests (intent capture, no upfront payment) -----------------------------
+def _build_request_summary(doc: dict) -> str:
+    """Human-readable summary of a build request for the owner notification."""
+    d = doc.get("design") or {}
+    lat, lng = d.get("lat"), d.get("lng")
+    lines = [
+        f"Place: {d.get('name', '(unnamed)')}",
+        f"Sub:   {d.get('sub', '')}",
+        f"Coords: {lat}, {lng}",
+        f"BBox:  {d.get('bbox')}",
+        f"Zoom:  {d.get('zoom')}",
+        f"Size:  {d.get('size', '8x8')}",
+        f"Style: {d.get('style', '')}  Mode: {d.get('mode', '')}",
+        "",
+        f"Customer: {doc.get('name', '')} <{doc.get('email', '')}>",
+        f"Message:  {doc.get('message', '') or '(none)'}",
+        "",
+        f"Request ID: {doc.get('id')}",
+    ]
+    return "\n".join(lines)
+
+
+async def _send_transition_emails(doc: dict, new_status: str):
+    """Customer/owner emails for a status transition. Callers wrap in try/except
+    — email is best-effort and must never fail the underlying update."""
+    place = (doc.get("design") or {}).get("name") or "your map"
+    status_link = f"{SITE_URL}/request/{doc['id']}"
+
+    if new_status == "proof_sent":
+        lines = [
+            f"Hi {doc.get('name') or 'there'},",
+            "",
+            f"Good news — the proof of your Terrane relief map of {place} is ready for your approval.",
+        ]
+        if doc.get("proof_url"):
+            lines += ["", f"View your proof: {doc['proof_url']}"]
+        if doc.get("note"):
+            lines += ["", f"A note from the workshop: {doc['note']}"]
+        lines += [
+            "",
+            f"Review, approve and pay here: {status_link}",
+            "",
+            "You only pay once you approve. Nothing prints before then.",
+            "",
+            "— Terrane",
+        ]
+        await send_email(doc.get("email", ""), f"Your Terrane proof is ready — {place}", "\n".join(lines))
+
+    elif new_status == "shipped":
+        lines = [
+            f"Hi {doc.get('name') or 'there'},",
+            "",
+            f"Your Terrane relief map of {place} has shipped.",
+        ]
+        if doc.get("tracking_number"):
+            lines += ["", f"Tracking number: {doc['tracking_number']}"]
+        lines += [
+            "",
+            f"Check its status any time: {status_link}",
+            "",
+            "Thank you for letting us build this one for you.",
+            "",
+            "— Terrane",
+        ]
+        await send_email(doc.get("email", ""), f"Your Terrane map has shipped — {place}", "\n".join(lines))
+
+    elif new_status == "approved":
+        # Owner notification: the customer approved the proof and paid.
+        if PROOF_NOTIFY_EMAIL:
+            await send_email(
+                PROOF_NOTIFY_EMAIL,
+                f"Approved & paid — print it — {place}",
+                _build_request_summary(doc),
+            )
+
+
+async def _approve_request_after_payment(request_id: str):
+    """After a successful capture of an order linked to a build request, flip
+    the request to approved (+history, paid_at) and notify the owner."""
+    req = await db.build_requests.find_one({"id": request_id})
+    if not req:
+        return
+    if req.get("status") in ("approved", "printing", "shipped"):
+        return  # already paid / further along — don't regress on a double capture
+    ts = now_iso()
+    await db.build_requests.update_one(
+        {"id": request_id},
+        {"$set": {"status": "approved", "updated_at": ts, "paid_at": ts},
+         "$push": {"status_history": {"status": "approved", "at": ts}}},
+    )
+    req["status"] = "approved"
+    await _send_transition_emails(req, "approved")
+
+
+async def _post_capture_hooks(order: dict):
+    """Best-effort: link a successful payment back to its build request.
+    Never raises — the capture itself already succeeded."""
+    try:
+        if order.get("build_request_id"):
+            await _approve_request_after_payment(order["build_request_id"])
+    except Exception as e:
+        logger.error(f"post-capture hook failed for order {order.get('id')}: {e}")
+
+
+@api_router.post("/build-requests")
+async def create_build_request(payload: BuildRequestCreate, user=Depends(get_optional_user)):
+    request_id = str(uuid.uuid4())
+    doc = {
+        "id": request_id,
+        "client_id": payload.client_id,
+        "name": payload.name.strip(),
+        "email": payload.email.lower().strip(),
+        "message": (payload.message or "").strip(),
+        "design": payload.design,
+        "status": "requested",
+        "price": MAP_PRICE,
+        "currency": "USD",
+        "created_at": now_iso(),
+    }
+    if user:
+        doc["user_id"] = user["id"]
+    await db.build_requests.insert_one(doc)
+
+    # Best-effort emails — a mail failure must never break the saved request.
+    email_sent = False
+    try:
+        place = (payload.design or {}).get("name", "a place")
+        summary = _build_request_summary(doc)
+        if PROOF_NOTIFY_EMAIL:
+            await send_email(
+                PROOF_NOTIFY_EMAIL,
+                f"New build request — {place}",
+                summary,
+            )
+        ack_body = (
+            f"Hi {doc['name'] or 'there'},\n\n"
+            f"Thanks for asking us to build your Terrane relief map of {place}.\n\n"
+            "Here's what happens next: we hand-build your 3D relief render from survey "
+            "elevation data and email you a proof to approve. You only pay ($249) once "
+            "you've said yes — nothing prints before then.\n\n"
+            f"Your request reference is {request_id[:8]}.\n\n"
+            "— Terrane"
+        )
+        email_sent = await send_email(
+            doc["email"],
+            "We've got your Terrane map request",
+            ack_body,
+        )
+    except Exception as e:
+        logger.error(f"build-request email step failed: {e}")
+
+    return {"request_id": request_id, "status": "requested", "email_sent": email_sent}
+
+
+@api_router.get("/build-requests/{req_id}")
+async def get_build_request(req_id: str):
+    """Public, sanitized status view. The UUID itself is the capability — it is
+    unguessable and only ever sent to the customer's own email address."""
+    doc = await db.build_requests.find_one({"id": req_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Build request not found")
+    d = doc.get("design") or {}
+    return {
+        "id": doc["id"],
+        "status": doc.get("status", "requested"),
+        "status_history": doc.get("status_history", []),
+        "created_at": doc.get("created_at"),
+        "proof_url": doc.get("proof_url"),
+        "note": doc.get("note"),
+        "tracking_number": doc.get("tracking_number"),
+        "price": doc.get("price", MAP_PRICE),
+        "currency": doc.get("currency", "USD"),
+        "design": {
+            "name": d.get("name"),
+            "sub": d.get("sub"),
+            "lat": d.get("lat"),
+            "lng": d.get("lng"),
+            "size": d.get("size", "8x8"),
+            "theme": d.get("theme"),
+        },
+        "name": doc.get("name"),
+        "email": doc.get("email"),
+    }
+
+
+@api_router.get("/admin/build-requests")
+async def admin_build_requests(user=Depends(require_user)):
+    if user.get("email", "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admins only")
+    docs = await db.build_requests.find().sort("created_at", -1).to_list(200)
+    for d in docs:
+        d.pop("_id", None)
+    return docs
+
+
+@api_router.patch("/admin/build-requests/{req_id}")
+async def admin_update_build_request(req_id: str, patch: BuildRequestAdminPatch, user=Depends(require_user)):
+    if user.get("email", "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admins only")
+    doc = await db.build_requests.find_one({"id": req_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Build request not found")
+    if patch.status is not None and patch.status not in ALLOWED_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Unknown status. Allowed: {', '.join(ALLOWED_STATUSES)}")
+
+    ts = now_iso()
+    sets = {"updated_at": ts}
+    for field in ("proof_url", "note", "tracking_number"):
+        value = getattr(patch, field)
+        if value is not None:
+            sets[field] = value.strip()
+    update = {"$set": sets}
+    status_changed = patch.status is not None and patch.status != doc.get("status")
+    if status_changed:
+        sets["status"] = patch.status
+        update["$push"] = {"status_history": {"status": patch.status, "at": ts}}
+    await db.build_requests.update_one({"id": req_id}, update)
+
+    updated = await db.build_requests.find_one({"id": req_id})
+    updated.pop("_id", None)
+
+    # Best-effort transition emails — never fail the update over mail trouble.
+    if status_changed:
+        try:
+            await _send_transition_emails(updated, patch.status)
+        except Exception as e:
+            logger.error(f"transition email failed for request {req_id}: {e}")
+
+    return updated
+
+
+# ----------------------------- First-party events (privacy-light beacon) -----------------------------
+@api_router.post("/events")
+async def create_event(payload: EventCreate):
+    """Public beacon — no auth, no third parties. Only allow-listed names are
+    accepted, and everything stored is truncated hard."""
+    if payload.name not in EVENT_NAMES:
+        raise HTTPException(status_code=400, detail="Unknown event name")
+    props = {}
+    if payload.props:
+        for k, v in list(payload.props.items())[:8]:
+            props[str(k)] = str(v)[:120]
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name,
+        "path": (payload.path or "")[:200],
+        "props": props,
+        "client_id": payload.client_id,
+        "created_at": now_iso(),
+    }
+    await db.events.insert_one(doc)
+    return {"ok": True}
+
+
+@api_router.get("/admin/stats")
+async def admin_stats(user=Depends(require_user)):
+    if user.get("email", "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admins only")
+    # Volumes are small: fetch the last 30 days of events and fold in Python.
+    # ISO-8601 strings from now_iso() compare correctly lexicographically.
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    events = await db.events.find(
+        {"created_at": {"$gte": cutoff}}, {"_id": 0, "name": 1, "created_at": 1}
+    ).to_list(50000)
+
+    event_totals: Dict[str, int] = {}
+    day_counts: Dict[Any, int] = {}
+    for e in events:
+        name = e.get("name") or "unknown"
+        day = str(e.get("created_at") or "")[:10]  # YYYY-MM-DD
+        event_totals[name] = event_totals.get(name, 0) + 1
+        day_counts[(day, name)] = day_counts.get((day, name), 0) + 1
+    events_by_day = [
+        {"date": day, "name": name, "count": count}
+        for (day, name), count in sorted(day_counts.items())
+    ]
+
+    requests_by_status: Dict[str, int] = {}
+    async for row in db.build_requests.aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
+        requests_by_status[row.get("_id") or "unknown"] = row["n"]
+
+    return {
+        "events_by_day": events_by_day,
+        "event_totals": event_totals,
+        "requests_by_status": requests_by_status,
+    }
+
+
+# ----------------------------- Contact -----------------------------
+@api_router.post("/contact")
+async def create_contact(payload: ContactCreate, user=Depends(get_optional_user)):
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Please include a message")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name.strip(),
+        "email": payload.email.lower().strip(),
+        "message": payload.message.strip(),
+        "client_id": payload.client_id,
+        "created_at": now_iso(),
+    }
+    if user:
+        doc["user_id"] = user["id"]
+    await db.contacts.insert_one(doc)
+
+    # Best-effort notification — the message is already persisted regardless.
+    try:
+        dest = CONTACT_NOTIFY_EMAIL or PROOF_NOTIFY_EMAIL
+        if dest:
+            body = (
+                f"From: {doc['name']} <{doc['email']}>\n\n"
+                f"{doc['message']}\n\n"
+                f"Ref: {doc['id'][:8]}"
+            )
+            await send_email(dest, f"Contact form — {doc['name']}", body)
+    except Exception as e:
+        logger.error(f"contact email failed: {e}")
+
+    return {"ok": True}
+
+
+@api_router.get("/admin/contacts")
+async def admin_contacts(user=Depends(require_user)):
+    if user.get("email", "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admins only")
+    docs = await db.contacts.find().sort("created_at", -1).to_list(200)
+    for d in docs:
+        d.pop("_id", None)
+    return docs
 
 
 app.include_router(api_router)
@@ -663,6 +1128,13 @@ async def ensure_indexes():
         await db.orders.create_index("id")
         await db.orders.create_index("client_id")
         await db.orders.create_index("user_id")
+        await db.build_requests.create_index("created_at")
+        await db.build_requests.create_index("client_id")
+        await db.build_requests.create_index("user_id")
+        await db.build_requests.create_index("status")
+        await db.contacts.create_index("created_at")
+        await db.events.create_index("created_at")
+        await db.events.create_index("name")
         logger.info("MongoDB indexes ensured")
     except Exception as e:
         logger.error(f"Failed to ensure indexes: {e}")

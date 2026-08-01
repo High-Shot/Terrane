@@ -1,0 +1,91 @@
+{%- comment -%}
+  Terrane How — "How it works" four-step section. Steps are blocks (number,
+  title, body). Self-contained dark-editorial styling scoped to section.id.
+{%- endcomment -%}
+
+<style>
+  #shopify-section-{{ section.id }} {
+    --t-bg-0: #0b1c29;
+    --t-bg-1: #0e2231;
+    --t-cream: #f2ead6;
+    --t-rust: #cd7b41;
+    --t-slate: #8299ac;
+    --t-line: rgba(233,224,202,0.10);
+    --t-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --t-body: 'Inter', system-ui, sans-serif;
+    --t-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+    background: var(--t-bg-0); color: var(--t-cream); font-family: var(--t-body);
+  }
+  #shopify-section-{{ section.id }} .t-wrap { max-width: 1200px; margin: 0 auto; padding: 96px 24px; }
+  #shopify-section-{{ section.id }} .t-kicker { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+  #shopify-section-{{ section.id }} .t-kicker .line { width: 40px; height: 1px; background: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-kicker .label { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-h2 {
+    font-family: var(--t-display); font-weight: 900; letter-spacing: -0.02em; line-height: 1.02;
+    font-size: clamp(2.4rem, 4.5vw, 3.2rem); max-width: 48rem; margin: 0;
+  }
+  #shopify-section-{{ section.id }} .t-h2 .accent { color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-steps {
+    margin-top: 64px; display: grid; gap: 1px; background: var(--t-line);
+    border: 1px solid var(--t-line); grid-template-columns: 1fr;
+  }
+  @media (min-width: 600px) { #shopify-section-{{ section.id }} .t-steps { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 990px) { #shopify-section-{{ section.id }} .t-steps { grid-template-columns: repeat(4, 1fr); } }
+  #shopify-section-{{ section.id }} .t-step { background: var(--t-bg-0); padding: 32px; transition: background 0.3s; }
+  #shopify-section-{{ section.id }} .t-step:hover { background: var(--t-bg-1); }
+  #shopify-section-{{ section.id }} .t-step-n { font-family: var(--t-display); font-weight: 900; font-size: 3.4rem; line-height: 1; color: rgba(205,123,65,0.25); }
+  #shopify-section-{{ section.id }} .t-step-title { font-family: var(--t-display); font-weight: 700; font-size: 1.1rem; margin: 20px 0 0; }
+  #shopify-section-{{ section.id }} .t-step-body { color: var(--t-slate); font-size: 0.88rem; line-height: 1.6; margin-top: 12px; }
+</style>
+
+<div class="t-wrap">
+  <div class="t-kicker"><span class="line"></span><span class="label">{{ section.settings.kicker }}</span></div>
+  <h2 class="t-h2">{{ section.settings.heading }} <span class="accent">{{ section.settings.heading_accent }}</span></h2>
+
+  {%- if section.blocks.size > 0 -%}
+    <div class="t-steps">
+      {%- for block in section.blocks -%}
+        <div class="t-step" {{ block.shopify_attributes }}>
+          <div class="t-step-n">{{ block.settings.number }}</div>
+          <h3 class="t-step-title">{{ block.settings.title }}</h3>
+          <p class="t-step-body">{{ block.settings.body }}</p>
+        </div>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+</div>
+
+{% schema %}
+{
+  "name": "Terrane How",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "kicker", "label": "Kicker", "default": "How it works" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "You design it. We check it." },
+    { "type": "text", "id": "heading_accent", "label": "Heading accent word", "default": "Twice." }
+  ],
+  "blocks": [
+    {
+      "type": "step",
+      "name": "Step",
+      "settings": [
+        { "type": "text", "id": "number", "label": "Number", "default": "01" },
+        { "type": "text", "id": "title", "label": "Title", "default": "Point to your place" },
+        { "type": "textarea", "id": "body", "label": "Body", "default": "Search an address or city, enter coordinates, or upload a GPX file. If you can point to it, we can build it." }
+      ]
+    }
+  ],
+  "max_blocks": 6,
+  "presets": [
+    {
+      "name": "Terrane How",
+      "blocks": [
+        { "type": "step", "settings": { "number": "01", "title": "Point to your place", "body": "Search an address or city, enter coordinates, or upload a GPX file. If you can point to it, we can build it." } },
+        { "type": "step", "settings": { "number": "02", "title": "Frame it", "body": "Set the crop and how tight you zoom. The legend updates live as you move — coordinates and scale." } },
+        { "type": "step", "settings": { "number": "03", "title": "Approve the proof", "body": "We build the final render from survey data and email it to you before anything prints. No surprise mountains." } },
+        { "type": "step", "settings": { "number": "04", "title": "We print it once", "body": "Your map is built layer by layer, inspected, mounted, and shipped. Edition 1 of 1, and it stays that way." } }
+      ]
+    }
+  ]
+}
+{% endschema %}

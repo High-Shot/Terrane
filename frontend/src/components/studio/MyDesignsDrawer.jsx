@@ -1,6 +1,8 @@
 import React from 'react';
 import { X, Trash2, Check } from 'lucide-react';
 import { fmtLat, fmtLng } from '../../lib/format';
+import { getTheme } from '../../lib/mapThemes';
+import { themeSwatchColors } from '../../lib/mapStyle';
 
 export default function MyDesignsDrawer({ open, onClose, designs, onDelete, onLoad }) {
   if (!open) return null;
@@ -19,10 +21,22 @@ export default function MyDesignsDrawer({ open, onClose, designs, onDelete, onLo
           </div>
         ) : (
           <div className="space-y-4">
-            {designs.map((d) => (
+            {designs.map((d) => {
+              const theme = getTheme(d.theme || d.style);
+              return (
               <div key={d.id} className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] overflow-hidden">
                 <div className="h-28 relative">
-                  <img src={d.image} alt={d.name} className="w-full h-full object-cover" />
+                  {d.image ? (
+                    <img src={d.image} alt={d.name} className="w-full h-full object-cover" />
+                  ) : theme ? (
+                    <div className="w-full h-full flex">
+                      {themeSwatchColors(theme).map((c, i) => (
+                        <span key={i} className="flex-1 h-full" style={{ background: c }} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="w-full h-full bg-[var(--bg-2)]" />
+                  )}
                   <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, transparent, rgba(11,28,41,0.9))' }} />
                 </div>
                 <div className="p-4">
@@ -34,14 +48,14 @@ export default function MyDesignsDrawer({ open, onClose, designs, onDelete, onLo
                     <button onClick={() => onDelete(d.id)} className="text-[var(--slate)] hover:text-[var(--rust)]"><Trash2 size={16} /></button>
                   </div>
                   <div className="flex items-center gap-3 mt-3 text-[var(--slate)] text-xs">
-                    <span className="flex items-center gap-1"><Check size={12} className="text-[var(--rust)]" /> {d.size === '12x16' ? '12\u00d716' : '16\u00d720'}</span>
-                    <span>{d.orientation}</span>
-                    <span>{d.style}</span>
+                    <span className="flex items-center gap-1"><Check size={12} className="text-[var(--rust)]" /> {d.size === '8x8' ? '8\u00d78' : d.size}</span>
+                    <span>{theme?.name || d.theme || d.style}</span>
                   </div>
                   <button onClick={() => onLoad(d)} className="btn-ghost w-full mt-4 !py-2">Load in studio</button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

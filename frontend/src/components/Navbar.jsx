@@ -5,6 +5,13 @@ import { NAV_LINKS } from '../mock/mock';
 import { useAuth } from '../lib/AuthContext';
 import AuthModal from './AuthModal';
 
+// Extra nav links added alongside the mock NAV_LINKS (which we do not edit).
+const EXTRA_LINKS = [
+  { label: 'Gallery', href: '/#gallery' },
+  { label: 'FAQ', href: '/faq' },
+  { label: 'About', href: '/about' },
+];
+
 const Logo = ({ onClick }) => (
   <Link to="/" onClick={onClick} className="flex items-center gap-3 group">
     <svg width="30" height="30" viewBox="0 0 40 40" fill="none" className="shrink-0">
@@ -67,6 +74,17 @@ export default function Navbar() {
               </Link>
             )
           )}
+          {EXTRA_LINKS.map((l) =>
+            l.href.startsWith('/#') ? (
+              <a key={l.label} href={l.href} onClick={handleAnchor(l.href)} className="mono-label text-[var(--slate)] hover:text-[var(--cream)] transition-colors">
+                {l.label}
+              </a>
+            ) : (
+              <Link key={l.label} to={l.href} className="mono-label text-[var(--slate)] hover:text-[var(--cream)] transition-colors">
+                {l.label}
+              </Link>
+            )
+          )}
         </nav>
 
         <div className="hidden lg:flex items-center gap-4">
@@ -91,6 +109,13 @@ export default function Navbar() {
       {open && (
         <div className="lg:hidden bg-[var(--bg-1)] border-t border-[var(--line)] px-8 py-6 flex flex-col gap-5">
           {NAV_LINKS.map((l) =>
+            l.href.startsWith('/#') ? (
+              <a key={l.label} href={l.href} onClick={handleAnchor(l.href)} className="mono-label text-[var(--slate)]">{l.label}</a>
+            ) : (
+              <Link key={l.label} to={l.href} onClick={() => setOpen(false)} className="mono-label text-[var(--slate)]">{l.label}</Link>
+            )
+          )}
+          {EXTRA_LINKS.map((l) =>
             l.href.startsWith('/#') ? (
               <a key={l.label} href={l.href} onClick={handleAnchor(l.href)} className="mono-label text-[var(--slate)]">{l.label}</a>
             ) : (

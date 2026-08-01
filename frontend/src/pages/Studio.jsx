@@ -1,22 +1,44 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Crosshair, Upload, Save, ShoppingCart, Trash2, Loader2 } from 'lucide-react';
+import { Search, Crosshair, Upload, Save, Hammer, Trash2, Loader2, Download } from 'lucide-react';
 import { toast } from 'sonner';
-import { MAP_STYLES } from '../mock/mock';
-import OrderModal from '../components/OrderModal';
+import BuildRequestModal from '../components/BuildRequestModal';
 import AuthModal from '../components/AuthModal';
 import PreviewPanel from '../components/studio/PreviewPanel';
 import MyDesignsDrawer from '../components/studio/MyDesignsDrawer';
 import useDesigns from '../hooks/useDesigns';
-import { api, getClientId, uploadRoute, fetchRoute } from '../lib/api';
+import { getClientId, uploadRoute, fetchRoute, searchPlaces, fetchElevationFt } from '../lib/api';
+import { track } from '../lib/analytics';
 import { useAuth } from '../lib/AuthContext';
-import { fmtLat, fmtLng } from '../lib/format';
+import { fmtLat, fmtLng, printScaleLabel } from '../lib/format';
+import { THEMES, DEFAULT_LAYERS, getTheme } from '../lib/mapThemes';
+import { themeSwatchColors } from '../lib/mapStyle';
+import { exportPosterPNG, exportPosterPDF } from '../lib/exporters';
 
 const QUICK = [
   { name: 'Fairhope, Alabama', sub: 'Eastern shore, Mobile Bay', lat: 30.5230, lng: -87.9033 },
   { name: 'Lake Tahoe', sub: 'Sierra Nevada', lat: 39.0968, lng: -120.0324 },
   { name: 'Moab, Utah', sub: 'Colorado Plateau', lat: 38.5733, lng: -109.5498 },
 ];
+
+// The product is a single 8" × 8" square relief map.
+const SIZE = '8x8';
+const ORIENTATION = 'square';
+
+// Degrees-minutes-seconds, e.g. 30° 31′ 23″ N — used for the export legend.
+const fmtDMS = (value, isLat) => {
+  const hemi = isLat ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W');
+  const abs = Math.abs(value);
+  let d = Math.floor(abs);
+  let mF = (abs - d) * 60;
+  let m = Math.floor(mF);
+  let s = Math.round((mF - m) * 60);
+  if (s === 60) { s = 0; m += 1; }
+  if (m === 60) { m = 0; d += 1; }
+  return `${d}° ${m}′ ${s}″ ${hemi}`;
+};
+
+const slugify = (s) => ((s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'terrane-map');
 
 const Logo = () => (
   <Link to="/" className="flex items-center gap-3">
@@ -50,6 +72,17 @@ const SectionTitle = ({ n, title }) => (
   </div>
 );
 
+// Switch-style toggle row for the Layers section.
+const ToggleRow = ({ label, checked, onChange, indent = false }) => (
+  <button type="button" onClick={() => onChange(!checked)} aria-pressed={checked}
+    className={`w-full flex items-center justify-between py-2 group ${indent ? 'pl-6' : ''}`}>
+    <span className={`text-sm transition-colors group-hover:text-[var(--cream)] ${checked ? 'text-[var(--cream)]' : 'text-[var(--slate)]'}`}>{label}</span>
+    <span className={`relative w-9 h-5 rounded-full border shrink-0 transition-colors ${checked ? 'border-[var(--rust)] bg-[var(--rust)]/25' : 'border-[var(--line-strong)] bg-[var(--bg-0)]'}`}>
+      <span className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all ${checked ? 'left-[18px] bg-[var(--rust)]' : 'left-[4px] bg-[var(--slate-dim)]'}`} />
+    </span>
+  </button>
+);
+
 export default function Studio() {
   const clientId = getClientId();
   const mapRef = useRef(null);
@@ -72,31 +105,28 @@ export default function Studio() {
   const searchBoxRef = useRef(null);
 
   const [mode, setMode] = useState('relief');
-  const [style, setStyle] = useState('harbor');
-  const [size, setSize] = useState('12x16');
-  const [orientation, setOrientation] = useState('portrait');
+  const [themeId, setThemeId] = useState('harbor');
+  const [layers, setLayers] = useState({ ...DEFAULT_LAYERS });
+  const [distanceM, setDistanceM] = useState(4000); // half-width of the frame, meters from center to edge
+  const [frame, setFrame] = useState(null); // { bounds, zoom, center } — the exact framed view
 
   const [legendName, setLegendName] = useState('Fairhope, Alabama');
   const [legendLine2, setLegendLine2] = useState('');
+  const [dms, setDms] = useState(false); // coordinates format on the export legend
 
   const [showDesigns, setShowDesigns] = useState(false);
-  const [config, setConfig] = useState({ paypal_enabled: false });
-  const [orderOpen, setOrderOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
+  const [exporting, setExporting] = useState(null); // 'png' | 'pdf' | null
 
   const { designs, loadDesigns, saveDesign, deleteDesign } = useDesigns(clientId, user);
 
-  const activeStyle = MAP_STYLES.find((s) => s.id === style) || MAP_STYLES[0];
-
-  // Load config
-  useEffect(() => {
-    api.get('/config').then((r) => setConfig(r.data)).catch((error) => console.error('Failed to load config:', error));
-  }, []);
+  const setLayer = (key, val) => setLayers((L) => ({ ...L, [key]: val }));
 
   // Fetch elevation whenever place coordinates change
   const fetchElevation = useCallback(async (lat, lng) => {
     try {
-      const { data } = await api.get('/elevation', { params: { lat, lng } });
-      setPlace((p) => ({ ...p, elev: data.elevation_ft }));
+      const ft = await fetchElevationFt(lat, lng); // backend first, open-meteo direct as fallback
+      setPlace((p) => ({ ...p, elev: ft }));
     } catch (error) {
       console.error('Failed to fetch elevation:', error);
       // Non-blocking: keep the previous elevation value rather than interrupting the design flow.
@@ -106,14 +136,33 @@ export default function Studio() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchElevation(place.lat, place.lng); }, [place.lat, place.lng]);
 
+  // Frame distance → refit the map to a bbox spanning ±distanceM around the
+  // place center (debounced so dragging the slider doesn't spam fitBounds).
+  const distSkipRef = useRef(true); // don't reframe on mount — the map frames itself
+  useEffect(() => {
+    if (distSkipRef.current) { distSkipRef.current = false; return; }
+    const t = setTimeout(() => {
+      const map = mapRef.current;
+      if (!map) return;
+      const lat = place.lat, lng = place.lng;
+      const dLat = distanceM / 111320;
+      const dLng = distanceM / (111320 * Math.cos((lat * Math.PI) / 180));
+      // MapLibre bounds are [[lng, lat], [lng, lat]] = [[west, south], [east, north]].
+      map.fitBounds([[lng - dLng, lat - dLat], [lng + dLng, lat + dLat]], { padding: 20, duration: 400 });
+    }, 150);
+    return () => clearTimeout(t);
+    // Reframe only when the distance changes; a place change already flies the map.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [distanceM]);
+
   // Debounced autocomplete
   useEffect(() => {
     if (skipSearchRef.current) { skipSearchRef.current = false; setSuggests([]); return; }
     if (tab !== 'search' || searchQ.trim().length < 3) { setSuggests([]); return; }
     const t = setTimeout(async () => {
       try {
-        const { data } = await api.get('/geocode', { params: { q: searchQ.trim() } });
-        setSuggests(data.results || []);
+        const results = await searchPlaces(searchQ.trim());
+        setSuggests(results || []);
       } catch { setSuggests([]); }
     }, 350);
     return () => clearTimeout(t);
@@ -136,16 +185,44 @@ export default function Studio() {
     setSearchQ(p.name);
   };
 
+  // One-shot on mount: analytics beacon + deep-link support. Place pages link
+  // here as /studio?lat=..&lng=..&name=..&sub=.. — if the params hold valid
+  // coordinates, frame that place immediately. Ref-guarded so it runs exactly
+  // once (StrictMode double-invokes effects in dev); malformed params are
+  // ignored and the default place stands.
+  const bootRef = useRef(false);
+  useEffect(() => {
+    if (bootRef.current) return;
+    bootRef.current = true;
+    track('studio_opened');
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const lat = parseFloat(params.get('lat'));
+      const lng = parseFloat(params.get('lng'));
+      if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        const name = params.get('name');
+        const sub = params.get('sub');
+        applyPlace({ name: name || `${lat}, ${lng}`, sub: sub || '', lat: +lat, lng: +lng });
+      }
+    } catch { /* malformed query string — keep the default place */ }
+    // Intentionally mount-only; applyPlace identity is irrelevant for a one-shot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSearch = async () => {
     if (!searchQ.trim()) { toast.error('Type a place to search'); return; }
     setSearching(true);
     try {
-      const { data } = await api.get('/geocode', { params: { q: searchQ.trim() } });
-      if (data.results && data.results.length) {
-        applyPlace(data.results[0]);
-        toast.success(`Framed ${data.results[0].name}`);
-      } else {
+      const results = await searchPlaces(searchQ.trim());
+      if (results && results.length) {
+        applyPlace(results[0]);
+        track('place_searched', { q: searchQ.trim().slice(0, 80) });
+        toast.success(`Framed ${results[0].name}`);
+      } else if (results) {
         toast.error('No place found — try a different search');
+      } else {
+        // null = backend AND direct geocoders unreachable
+        toast.error('Search is unreachable — check your connection, or use the Coordinates tab.');
       }
     } catch {
       toast.error('Search failed. Try again.');
@@ -183,9 +260,40 @@ export default function Studio() {
 
   const clearRoute = () => { setRoute(null); if (fileInputRef.current) fileInputRef.current.value = ''; };
 
+  const coordsText = dms
+    ? `${fmtDMS(place.lat, true)}, ${fmtDMS(place.lng, false)}`
+    : `${fmtLat(place.lat)}, ${fmtLng(place.lng)}`;
+
+  const handleExport = async (kind) => {
+    const map = mapRef.current;
+    if (!map) { toast.error('The map preview is still loading'); return; }
+    setExporting(kind);
+    try {
+      const opts = {
+        map,
+        title: legendName || place.name,
+        subtitle: legendLine2 || place.sub,
+        coordsText,
+        scaleText: printScaleLabel(frame?.bounds),
+        theme: getTheme(themeId),
+        filename: slugify(place.name),
+      };
+      if (kind === 'pdf') await exportPosterPDF(opts);
+      else await exportPosterPNG(opts);
+      track('export_download', { format: kind });
+      toast.success(kind === 'pdf' ? 'Poster PDF downloaded' : 'Poster PNG downloaded');
+    } catch (e) {
+      toast.error(e?.message || 'Export failed — try again');
+    } finally {
+      setExporting(null);
+    }
+  };
+
   const currentDesign = () => ({
     client_id: clientId, name: legendName || place.name, sub: legendLine2 || place.sub,
-    lat: place.lat, lng: place.lng, mode, style, size, orientation, elev: place.elev, image: activeStyle.img,
+    lat: place.lat, lng: place.lng, mode, style: themeId, theme: themeId, layers, distance_m: distanceM, dms,
+    size: SIZE, orientation: ORIENTATION, elev: place.elev, image: '',
+    bbox: frame?.bounds ?? null, zoom: frame?.zoom ?? null, pitch: frame?.pitch ?? null, bearing: frame?.bearing ?? null,
     route_id: route?.id || null, route_color: routeColor,
   });
 
@@ -193,7 +301,11 @@ export default function Studio() {
 
   const handleLoadDesign = async (d) => {
     applyPlace({ name: d.name, sub: d.sub, lat: d.lat, lng: d.lng });
-    setMode(d.mode); setStyle(d.style); setSize(d.size); setOrientation(d.orientation);
+    setMode(d.mode);
+    setThemeId(d.theme || d.style || 'harbor');
+    setLayers(d.layers ? { ...DEFAULT_LAYERS, ...d.layers } : { ...DEFAULT_LAYERS });
+    if (typeof d.dms === 'boolean') setDms(d.dms);
+    if (d.distance_m != null) setDistanceM(d.distance_m);
     setLegendName(d.name); setLegendLine2(d.sub || '');
     if (d.route_color) setRouteColor(d.route_color);
     if (d.route_id) {
@@ -332,43 +444,92 @@ export default function Studio() {
           {/* 02 FRAME */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
             <SectionTitle n="02" title="Frame" />
-            <Segmented value={mode} onChange={setMode} options={[{ label: 'Terrain relief', value: 'relief' }, { label: 'City streets', value: 'streets' }]} />
-            <div className="grid grid-cols-3 gap-3 mt-4">
-              {MAP_STYLES.map((s) => (
-                <button key={s.id} onClick={() => setStyle(s.id)}
-                  className={`rounded-sm overflow-hidden border transition-all ${style === s.id ? 'border-[var(--rust)]' : 'border-[var(--line)] hover:border-[var(--line-strong)]'}`}>
-                  <div className="h-14 relative">
-                    <img src={s.img} alt={s.name} className="w-full h-full object-cover" />
-                    <div className="absolute inset-0" style={{ background: s.tint }} />
-                  </div>
-                  <div className={`mono-label py-1.5 ${style === s.id ? 'text-[var(--rust)]' : 'text-[var(--slate)]'}`}>{s.name}</div>
+            <Segmented value={mode} onChange={setMode} options={[{ label: '3D terrain', value: 'relief' }, { label: 'Top-down', value: 'streets' }]} />
+            <div className="grid grid-cols-4 gap-2 mt-4">
+              {THEMES.map((t) => (
+                <button key={t.id} onClick={() => setThemeId(t.id)}
+                  className={`rounded-sm overflow-hidden border p-1.5 transition-all ${themeId === t.id ? 'border-[var(--rust)]' : 'border-[var(--line)] hover:border-[var(--line-strong)]'}`}>
+                  <span className="flex h-6 rounded-[2px] overflow-hidden">
+                    {themeSwatchColors(t).map((c, i) => (
+                      <span key={i} className="flex-1" style={{ background: c }} />
+                    ))}
+                  </span>
+                  <span className={`block mono-label pt-1.5 ${themeId === t.id ? 'text-[var(--rust)]' : 'text-[var(--slate)]'}`}>{t.name}</span>
                 </button>
               ))}
             </div>
-            <div className="mt-4"><Segmented value={size} onChange={setSize} options={[{ label: '12" × 16"', value: '12x16' }, { label: '16" × 20"', value: '16x20' }]} /></div>
-            <div className="mt-3"><Segmented value={orientation} onChange={setOrientation} options={[{ label: 'Portrait', value: 'portrait' }, { label: 'Landscape', value: 'landscape' }]} /></div>
-            <p className="text-[var(--slate)] text-xs mt-4">Pan and zoom the preview to set your crop. What you frame is what we build.</p>
+            <div className="mt-5">
+              <div className="flex items-baseline justify-between">
+                <label className="text-[var(--cream-dim)] text-sm">Frame distance</label>
+                <span className="font-mono text-[0.72rem] text-[var(--cream)]">
+                  {(distanceM / 1000).toFixed(1)} km · {(distanceM / 1609.344).toFixed(1)} mi
+                </span>
+              </div>
+              <input type="range" min="200" max="50000" step="100" value={distanceM}
+                onChange={(e) => setDistanceM(Number(e.target.value))}
+                className="w-full mt-3 accent-[var(--rust)] cursor-pointer" />
+            </div>
+            <p className="text-[var(--slate)] text-xs mt-4">Pan, zoom, and drag to rotate or tilt the preview. What you frame — including the 3D angle — is what we build into a single 8" × 8" relief map.</p>
           </div>
 
-          {/* 03 LEGEND */}
+          {/* 03 LAYERS */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
-            <SectionTitle n="03" title="Legend" />
+            <SectionTitle n="03" title="Layers" />
+            <div className="-my-1">
+              <ToggleRow label="Water" checked={!!layers.water} onChange={(v) => setLayer('water', v)} />
+              <ToggleRow label="Land texture" checked={!!layers.landcover} onChange={(v) => setLayer('landcover', v)} />
+              <ToggleRow label="Parks" checked={!!layers.parks} onChange={(v) => setLayer('parks', v)} />
+              <ToggleRow label="Buildings" checked={!!layers.buildings} onChange={(v) => setLayer('buildings', v)} />
+              <ToggleRow label="Roads" checked={!!layers.roads} onChange={(v) => setLayer('roads', v)} />
+              {layers.roads && (
+                <>
+                  <ToggleRow indent label="Paths & trails" checked={!!layers.roadPath} onChange={(v) => setLayer('roadPath', v)} />
+                  <ToggleRow indent label="Small streets" checked={!!layers.roadMinorLow} onChange={(v) => setLayer('roadMinorLow', v)} />
+                  <ToggleRow indent label="Road outlines" checked={!!layers.roadOutline} onChange={(v) => setLayer('roadOutline', v)} />
+                </>
+              )}
+              <ToggleRow label="Rail" checked={!!layers.rail} onChange={(v) => setLayer('rail', v)} />
+              <ToggleRow label="Aeroways" checked={!!layers.aeroway} onChange={(v) => setLayer('aeroway', v)} />
+            </div>
+          </div>
+
+          {/* 04 LEGEND */}
+          <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
+            <SectionTitle n="04" title="Legend" />
             <label className="text-[var(--cream-dim)] text-sm">Place name on the legend</label>
             <input value={legendName} onChange={(e) => setLegendName(e.target.value)}
               className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
             <input value={legendLine2} onChange={(e) => setLegendLine2(e.target.value)} placeholder="Second line, optional. A date, a name, the reason it matters."
               className="w-full mt-3 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] text-sm focus:outline-none focus:border-[var(--rust)] transition-colors" />
+            <div className="mt-4">
+              <label className="text-[var(--cream-dim)] text-sm">Coordinates format</label>
+              <div className="mt-2">
+                <Segmented value={dms ? 'dms' : 'decimal'} onChange={(v) => setDms(v === 'dms')}
+                  options={[{ label: 'Decimal', value: 'decimal' }, { label: 'DMS', value: 'dms' }]} />
+              </div>
+              <div className="font-mono text-[0.72rem] text-[var(--slate-dim)] mt-2">{coordsText}</div>
+            </div>
           </div>
 
-          {/* 04 SAVE / ORDER */}
+          {/* 05 SAVE / BUILD */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
-            <SectionTitle n="04" title="Save or order" />
+            <SectionTitle n="05" title="Save or build" />
             <div className="grid grid-cols-2 gap-3">
               <button onClick={handleSave} className="btn-ghost flex items-center justify-center gap-2"><Save size={15} /> Save</button>
-              <button onClick={() => setOrderOpen(true)} className="btn-rust flex items-center justify-center gap-2"><ShoppingCart size={15} /> Order · $249</button>
+              <button onClick={() => setBuildOpen(true)} className="btn-rust flex items-center justify-center gap-2"><Hammer size={15} /> Build my map</button>
+            </div>
+            <div className="grid grid-cols-[1fr_auto] gap-3 mt-3">
+              <button onClick={() => handleExport('png')} disabled={!frame || !!exporting}
+                className="btn-ghost flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                {exporting === 'png' ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Download preview · PNG
+              </button>
+              <button onClick={() => handleExport('pdf')} disabled={!frame || !!exporting}
+                className="btn-ghost flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                {exporting === 'pdf' ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} PDF
+              </button>
             </div>
             <div className="mt-5 space-y-2">
-              <div className="mono-label text-[var(--slate-dim)]">Edition 1 of 1 · Your file is never resold</div>
+              <div className="mono-label text-[var(--slate-dim)]">No upfront payment · $249, only after you approve</div>
               <div className="mono-label text-[var(--slate-dim)]">Final proof emailed before anything prints</div>
             </div>
           </div>
@@ -377,14 +538,15 @@ export default function Studio() {
         <PreviewPanel
           place={place}
           mode={mode}
-          style={style}
-          size={size}
-          orientation={orientation}
+          themeId={themeId}
+          layers={layers}
           legendName={legendName}
           legendLine2={legendLine2}
           route={route}
           routeColor={routeColor}
           mapRef={mapRef}
+          frame={frame}
+          onFrameChange={setFrame}
         />
       </div>
 
@@ -396,7 +558,7 @@ export default function Studio() {
         onLoad={handleLoadDesign}
       />
 
-      <OrderModal open={orderOpen} onClose={() => { setOrderOpen(false); }} design={currentDesign()} clientId={clientId} config={config} />
+      <BuildRequestModal open={buildOpen} onClose={() => setBuildOpen(false)} design={currentDesign()} clientId={clientId} />
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onSuccess={() => loadDesigns()} />
     </div>
   );

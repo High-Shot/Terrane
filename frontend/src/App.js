@@ -4,6 +4,17 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "./lib/AuthContext";
 import Home from "./pages/Home";
 import Studio from "./pages/Studio";
+import About from "./pages/About";
+import Faq from "./pages/Faq";
+import Shipping from "./pages/Shipping";
+import Returns from "./pages/Returns";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import Contact from "./pages/Contact";
+import NotFound from "./pages/NotFound";
+import PlacePage from "./pages/PlacePage";
+import Admin from "./pages/Admin";
+import RequestStatus from "./pages/RequestStatus";
 
 function App() {
   return (
@@ -13,6 +24,17 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/studio" element={<Studio />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/faq" element={<Faq />} />
+            <Route path="/shipping" element={<Shipping />} />
+            <Route path="/returns" element={<Returns />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/maps/:slug" element={<PlacePage />} />
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/request/:id" element={<RequestStatus />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

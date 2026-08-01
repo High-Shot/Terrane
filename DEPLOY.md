@@ -59,6 +59,44 @@ REACT_APP_BACKEND_URL="" yarn build   # empty => same-origin /api
 **Nginx** (host-level): use `frontend/nginx.conf` — it serves the SPA and proxies
 `/api/` to `http://127.0.0.1:8001` (adjust the upstream host/port for a non-Docker setup).
 
+## Build requests & email (optional)
+
+The studio's "Build my map" button submits a **build request** (customer name,
+email, the exact framed area, and the design) with no upfront payment. These are
+**always persisted to MongoDB** in the `build_requests` collection, whether or not
+email is configured.
+
+Email is optional and provider-agnostic (generic SMTP — Resend, Postmark, Amazon
+SES, SendGrid all offer SMTP). Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+`SMTP_PASS`, `SMTP_FROM`, `SMTP_STARTTLS`, `PROOF_NOTIFY_EMAIL` (owner inbox), and
+`ADMIN_EMAILS` in `backend/.env` (see `.env.example`). Leave `SMTP_HOST` blank to
+disable email entirely — requests are still saved, and the app never dead-ends.
+
+An admin whose email is listed in `ADMIN_EMAILS` (and who is signed in) can list
+the most recent requests:
+
+```bash
+curl -b cookies.txt https://<your-domain>/api/admin/build-requests
+```
+
+## Map tiles / MapTiler key (optional, enables vector themes)
+
+The studio's base map is a keyless relief raster stack (ESRI shaded relief +
+OSM streets + AWS elevation for 3D terrain) and works with no configuration.
+To enable full vector map themes (per-layer styling, 3D buildings), set a
+[MapTiler](https://www.maptiler.com/) API key at **frontend build time**:
+
+```bash
+# frontend/.env (gitignored), or Cloudflare Pages env settings:
+REACT_APP_MAPTILER_KEY=your_key_here
+```
+
+Then rebuild the frontend (`docker compose up -d --build`, or a new Pages
+deploy). In the MapTiler dashboard, restrict the key's allowed origins to your
+domains (e.g. terranemaps.com and *.terrane.pages.dev). If the key is absent
+or its tiles fail to deliver, the studio automatically stays on / reverts to
+the raster relief base — the map never blanks.
+
 ## Important notes for this app
 - `REACT_APP_BACKEND_URL` must be **empty** (same-origin) or your bare domain **without** `/api`.
   The frontend appends `/api` itself; using `https://domain/api` would call `/api/api/...`.

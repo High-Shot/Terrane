@@ -1,11 +1,48 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
+const COLUMNS = [
+  {
+    title: 'Explore',
+    links: [
+      { label: 'The Studio', to: '/studio', type: 'route' },
+      { label: 'Gallery', to: '/#gallery', type: 'hash' },
+      { label: 'How it works', to: '/#how', type: 'hash' },
+    ],
+  },
+  {
+    title: 'Company',
+    links: [
+      { label: 'About', to: '/about', type: 'route' },
+      { label: 'Contact', to: '/contact', type: 'route' },
+      { label: 'FAQ', to: '/faq', type: 'route' },
+    ],
+  },
+  {
+    title: 'Legal',
+    links: [
+      { label: 'Privacy', to: '/privacy', type: 'route' },
+      { label: 'Terms', to: '/terms', type: 'route' },
+      { label: 'Shipping', to: '/shipping', type: 'route' },
+      { label: 'Returns', to: '/returns', type: 'route' },
+    ],
+  },
+];
+
+const FooterLink = ({ link }) => {
+  const cls = 'text-[var(--cream-dim)] hover:text-[var(--rust)] transition-colors text-sm';
+  return link.type === 'hash' ? (
+    <a href={link.to} className={cls}>{link.label}</a>
+  ) : (
+    <Link to={link.to} className={cls}>{link.label}</Link>
+  );
+};
+
 export default function Footer() {
   return (
     <footer className="border-t border-[var(--line)] bg-[var(--bg-1)]">
       <div className="container-x py-16">
-        <div className="grid md:grid-cols-2 gap-10 items-start">
+        <div className="grid gap-12 lg:grid-cols-[1.2fr_2fr]">
           <div>
             <div className="flex items-center gap-3 mb-5">
               <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
@@ -22,16 +59,18 @@ export default function Footer() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-8">
-            <div>
-              <div className="mono-label text-[var(--rust)] mb-4">Explore</div>
-              <ul className="space-y-3">
-                <li><Link to="/studio" className="text-[var(--cream-dim)] hover:text-[var(--rust)] transition-colors text-sm">The Studio</Link></li>
-                <li><a href="/#the-data" className="text-[var(--cream-dim)] hover:text-[var(--rust)] transition-colors text-sm">The Data</a></li>
-                <li><a href="/#how" className="text-[var(--cream-dim)] hover:text-[var(--rust)] transition-colors text-sm">How it works</a></li>
-                <li><a href="/#sizes" className="text-[var(--cream-dim)] hover:text-[var(--rust)] transition-colors text-sm">Sizes</a></li>
-              </ul>
-            </div>
+          <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
+            {COLUMNS.map((col) => (
+              <div key={col.title}>
+                <div className="mono-label text-[var(--rust)] mb-4">{col.title}</div>
+                <ul className="space-y-3">
+                  {col.links.map((link) => (
+                    <li key={link.label}><FooterLink link={link} /></li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+
             <div>
               <div className="mono-label text-[var(--rust)] mb-4">Data</div>
               <ul className="space-y-3">

@@ -1,0 +1,126 @@
+{%- comment -%}
+  Terrane Gifting — gifting section with an intro, a packaging image_picker
+  (dashed placeholder empty state), three feature columns as blocks, and a
+  studio CTA using the `studio_url` setting. Scoped dark-editorial styling.
+{%- endcomment -%}
+
+<style>
+  #shopify-section-{{ section.id }} {
+    --t-bg-0: #0b1c29;
+    --t-bg-1: #0e2231;
+    --t-cream: #f2ead6;
+    --t-cream-dim: #d8cfba;
+    --t-rust: #cd7b41;
+    --t-rust-bright: #e08b4c;
+    --t-slate: #8299ac;
+    --t-slate-dim: #607585;
+    --t-line: rgba(233,224,202,0.10);
+    --t-line-strong: rgba(233,224,202,0.18);
+    --t-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --t-body: 'Inter', system-ui, sans-serif;
+    --t-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+    background: var(--t-bg-1); color: var(--t-cream); font-family: var(--t-body);
+    border-top: 1px solid var(--t-line);
+  }
+  #shopify-section-{{ section.id }} .t-wrap { max-width: 1200px; margin: 0 auto; padding: 96px 24px; }
+  #shopify-section-{{ section.id }} .t-top { display: grid; gap: 56px; align-items: center; }
+  @media (min-width: 990px) { #shopify-section-{{ section.id }} .t-top { grid-template-columns: 1fr 1fr; } }
+  #shopify-section-{{ section.id }} .t-kicker { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+  #shopify-section-{{ section.id }} .t-kicker .line { width: 40px; height: 1px; background: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-kicker .label { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-h2 {
+    font-family: var(--t-display); font-weight: 900; letter-spacing: -0.02em; line-height: 1.03;
+    font-size: clamp(2.1rem, 4vw, 3rem); max-width: 34rem; margin: 0;
+  }
+  #shopify-section-{{ section.id }} .t-lede { margin-top: 24px; color: var(--t-cream-dim); line-height: 1.7; max-width: 30rem; }
+  #shopify-section-{{ section.id }} .t-media { position: relative; aspect-ratio: 4 / 3; border-radius: 2px; overflow: hidden; border: 1px solid var(--t-line-strong); }
+  #shopify-section-{{ section.id }} .t-media img { width: 100%; height: 100%; object-fit: cover; }
+  #shopify-section-{{ section.id }} .t-img-placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 16px; border: 2px dashed var(--t-line-strong);
+    color: var(--t-slate-dim); font-family: var(--t-mono); font-size: 0.72rem; letter-spacing: 0.06em;
+    background: rgba(20,44,62,0.4);
+  }
+  #shopify-section-{{ section.id }} .t-cols { margin-top: 64px; display: grid; gap: 1px; background: var(--t-line); border: 1px solid var(--t-line); grid-template-columns: 1fr; }
+  @media (min-width: 750px) { #shopify-section-{{ section.id }} .t-cols { grid-template-columns: repeat(3, 1fr); } }
+  #shopify-section-{{ section.id }} .t-col { background: var(--t-bg-0); padding: 32px; }
+  #shopify-section-{{ section.id }} .t-col-title { font-family: var(--t-display); font-weight: 700; font-size: 1.1rem; margin: 0; }
+  #shopify-section-{{ section.id }} .t-col-body { color: var(--t-slate); font-size: 0.88rem; line-height: 1.6; margin-top: 12px; }
+  #shopify-section-{{ section.id }} .t-cta-row { margin-top: 40px; }
+  #shopify-section-{{ section.id }} .t-btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 14px 24px;
+    background: var(--t-rust); color: #1a0f07; font-weight: 700; text-decoration: none;
+    border-radius: 2px; border: 1px solid var(--t-rust); font-size: 0.95rem;
+  }
+  #shopify-section-{{ section.id }} .t-btn:hover { background: var(--t-rust-bright); border-color: var(--t-rust-bright); }
+</style>
+
+<div class="t-wrap">
+  <div class="t-top">
+    <div>
+      <div class="t-kicker"><span class="line"></span><span class="label">{{ section.settings.kicker }}</span></div>
+      <h2 class="t-h2">{{ section.settings.heading }}</h2>
+      {%- if section.settings.lede != blank -%}
+        <div class="t-lede">{{ section.settings.lede }}</div>
+      {%- endif -%}
+    </div>
+    <div class="t-media">
+      {%- if section.settings.image != blank -%}
+        <img src="{{ section.settings.image | image_url: width: 1000 }}" alt="{{ section.settings.image.alt | default: 'Gift packaging' | escape }}" width="1000" height="750" loading="lazy">
+      {%- else -%}
+        <div class="t-img-placeholder">Add photo: gift packaging / unboxing</div>
+      {%- endif -%}
+    </div>
+  </div>
+
+  {%- if section.blocks.size > 0 -%}
+    <div class="t-cols">
+      {%- for block in section.blocks -%}
+        <div class="t-col" {{ block.shopify_attributes }}>
+          <h3 class="t-col-title">{{ block.settings.title }}</h3>
+          <p class="t-col-body">{{ block.settings.body }}</p>
+        </div>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+
+  <div class="t-cta-row">
+    <a class="t-btn" href="{{ section.settings.studio_url }}">{{ section.settings.button_label }} →</a>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Terrane Gifting",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "kicker", "label": "Kicker", "default": "Gifting" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "The gift that is only theirs." },
+    { "type": "richtext", "id": "lede", "label": "Lede", "default": "<p>A relief map of the place that made someone is a keepsake, not a poster. Made once, for one person, and impossible to buy anywhere else. (EDIT)</p>" },
+    { "type": "image_picker", "id": "image", "label": "Gift image (packaging / unboxing)" },
+    { "type": "url", "id": "studio_url", "label": "Studio URL", "default": "https://studio.terranemaps.com" },
+    { "type": "text", "id": "button_label", "label": "Button label", "default": "Start a gift map" }
+  ],
+  "blocks": [
+    {
+      "type": "column",
+      "name": "Column",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Add a gift note" },
+        { "type": "textarea", "id": "body", "label": "Body", "default": "A second legend line carries a name, a date, or the reason. We print it and never ask. Write your default gift-note guidance here. (EDIT)" }
+      ]
+    }
+  ],
+  "max_blocks": 6,
+  "presets": [
+    {
+      "name": "Terrane Gifting",
+      "blocks": [
+        { "type": "column", "settings": { "title": "Add a gift note", "body": "A second legend line carries a name, a date, or the reason. We print it and never ask. Write your default gift-note guidance here. (EDIT)" } },
+        { "type": "column", "settings": { "title": "Ship to the recipient", "body": "Send it straight to their door, or to yours to give in person. Confirm your gift-shipping options and any surcharge here. (EDIT)" } },
+        { "type": "column", "settings": { "title": "Framed for the occasion", "body": "Weddings, retirements, the family cabin, the first house. Describe the occasions you frame best here. (EDIT)" } }
+      ]
+    }
+  ]
+}
+{% endschema %}

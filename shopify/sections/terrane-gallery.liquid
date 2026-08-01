@@ -1,0 +1,111 @@
+{%- comment -%}
+  Terrane Gallery — finished-map examples. Each item is a block with its own
+  image_picker (dashed placeholder empty state), place name, and blurb.
+  Self-contained dark-editorial styling scoped to section.id.
+{%- endcomment -%}
+
+<style>
+  #shopify-section-{{ section.id }} {
+    --t-bg-0: #0b1c29;
+    --t-panel: #142c3e;
+    --t-cream: #f2ead6;
+    --t-cream-dim: #d8cfba;
+    --t-rust: #cd7b41;
+    --t-slate: #8299ac;
+    --t-slate-dim: #607585;
+    --t-line: rgba(233,224,202,0.10);
+    --t-line-strong: rgba(233,224,202,0.18);
+    --t-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --t-body: 'Inter', system-ui, sans-serif;
+    --t-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+    background: var(--t-bg-0); color: var(--t-cream); font-family: var(--t-body);
+  }
+  #shopify-section-{{ section.id }} .t-wrap { max-width: 1200px; margin: 0 auto; padding: 96px 24px; }
+  #shopify-section-{{ section.id }} .t-kicker { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+  #shopify-section-{{ section.id }} .t-kicker .line { width: 40px; height: 1px; background: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-kicker .label { font-family: var(--t-mono); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--t-rust); }
+  #shopify-section-{{ section.id }} .t-h2 {
+    font-family: var(--t-display); font-weight: 900; letter-spacing: -0.02em; line-height: 1.02;
+    font-size: clamp(2.2rem, 4vw, 3rem); max-width: 40rem; margin: 0;
+  }
+  #shopify-section-{{ section.id }} .t-lede { margin-top: 24px; color: var(--t-cream-dim); line-height: 1.7; max-width: 40rem; }
+  #shopify-section-{{ section.id }} .t-grid { margin-top: 56px; display: grid; gap: 24px; }
+  @media (min-width: 750px) { #shopify-section-{{ section.id }} .t-grid { grid-template-columns: repeat(3, 1fr); } }
+  #shopify-section-{{ section.id }} .t-item { border: 1px solid var(--t-line); background: var(--t-panel); border-radius: 2px; overflow: hidden; }
+  #shopify-section-{{ section.id }} .t-media { position: relative; aspect-ratio: 4 / 3; overflow: hidden; }
+  #shopify-section-{{ section.id }} .t-media img { width: 100%; height: 100%; object-fit: cover; }
+  #shopify-section-{{ section.id }} .t-img-placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 16px; border: 2px dashed var(--t-line-strong);
+    color: var(--t-slate-dim); font-family: var(--t-mono); font-size: 0.72rem; letter-spacing: 0.06em;
+    background: rgba(20,44,62,0.4);
+  }
+  #shopify-section-{{ section.id }} .t-body { padding: 20px 24px 24px; }
+  #shopify-section-{{ section.id }} .t-place { font-family: var(--t-display); font-weight: 700; font-size: 1.05rem; }
+  #shopify-section-{{ section.id }} .t-blurb { color: var(--t-slate); font-size: 0.85rem; line-height: 1.6; margin-top: 8px; }
+</style>
+
+<div class="t-wrap">
+  <div class="t-kicker"><span class="line"></span><span class="label">{{ section.settings.kicker }}</span></div>
+  <h2 class="t-h2">{{ section.settings.heading }}</h2>
+  {%- if section.settings.lede != blank -%}
+    <div class="t-lede">{{ section.settings.lede }}</div>
+  {%- endif -%}
+
+  {%- if section.blocks.size > 0 -%}
+    <div class="t-grid">
+      {%- for block in section.blocks -%}
+        <div class="t-item" {{ block.shopify_attributes }}>
+          <div class="t-media">
+            {%- if block.settings.image != blank -%}
+              <img src="{{ block.settings.image | image_url: width: 800 }}" alt="{{ block.settings.place | escape }}" width="800" height="600" loading="lazy">
+            {%- else -%}
+              <div class="t-img-placeholder">Add photo: {{ block.settings.place | escape }}</div>
+            {%- endif -%}
+          </div>
+          <div class="t-body">
+            <div class="t-place">{{ block.settings.place }}</div>
+            <p class="t-blurb">{{ block.settings.blurb }}</p>
+          </div>
+        </div>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+</div>
+
+{% schema %}
+{
+  "name": "Terrane Gallery",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "kicker", "label": "Kicker", "default": "The gallery" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Places we have printed." },
+    { "type": "richtext", "id": "lede", "label": "Lede", "default": "<p>A few of the places that have come through the studio. Yours does not have to be famous — it has to be yours.</p>" }
+  ],
+  "blocks": [
+    {
+      "type": "piece",
+      "name": "Gallery piece",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Photo" },
+        { "type": "text", "id": "place", "label": "Place", "default": "Lake Tahoe, California" },
+        { "type": "text", "id": "blurb", "label": "Blurb", "default": "Sierra Nevada shoreline in full relief. (EDIT)" }
+      ]
+    }
+  ],
+  "max_blocks": 12,
+  "presets": [
+    {
+      "name": "Terrane Gallery",
+      "blocks": [
+        { "type": "piece", "settings": { "place": "Lake Tahoe, California", "blurb": "Sierra Nevada shoreline in full relief. (EDIT)" } },
+        { "type": "piece", "settings": { "place": "Acadia, Maine", "blurb": "Mount Desert Island, coast to summit. (EDIT)" } },
+        { "type": "piece", "settings": { "place": "Moab, Utah", "blurb": "Canyon country on the Colorado Plateau. (EDIT)" } },
+        { "type": "piece", "settings": { "place": "Fairhope, Alabama", "blurb": "Eastern shore of Mobile Bay. (EDIT)" } },
+        { "type": "piece", "settings": { "place": "Boulder, Colorado", "blurb": "Front Range foothills above town. (EDIT)" } },
+        { "type": "piece", "settings": { "place": "Your hometown", "blurb": "The street that raised you, in true scale. (EDIT)" } }
+      ]
+    }
+  ]
+}
+{% endschema %}
