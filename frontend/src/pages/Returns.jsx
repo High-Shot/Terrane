@@ -1,52 +1,70 @@
 import React from 'react';
-import { Info } from 'lucide-react';
 import PageShell from '../components/PageShell';
+import { PRODUCT } from '../content/home';
+
+/**
+ * Returns policy.
+ *
+ * Replaces a page that shipped "within X days", "within X business days" and
+ * "Last updated: [DATE — EDIT]" to production under a "Starter text" banner.
+ *
+ * This is the finished policy already written for the Shopify storefront
+ * (shopify/pages/returns.html), ported so both storefronts state identical
+ * terms, with the contact address corrected to the real one.
+ */
 
 const SECTIONS = [
   {
-    heading: 'Custom, made-to-order work',
-    body: 'Because each Terrane map is custom-built for one place and printed a single time, it cannot be resold. For that reason, custom orders are generally not eligible for return once approved and printed. This is why the proof step exists — nothing prints until you approve it. (EDIT)',
+    heading: 'Made-to-order items',
+    body: 'Because each map is custom-made for a single place and printed only once, we do not accept returns or exchanges on completed orders.',
   },
   {
-    heading: 'The proof protects you',
-    body: 'Before anything prints, we send you a final render to review. You can request changes to the crop, scale, and legend at that stage. Approving the proof confirms the design you will receive. (EDIT)',
-  },
-  {
-    heading: 'Damaged or defective orders',
-    body: 'If your order arrives damaged, defective, or materially different from the proof you approved, contact us at contact@terranemaps.com within X days of delivery with photos. We will remake or refund it at no cost. (EDIT)',
+    heading: 'If it arrives damaged or defective',
+    body: 'We stand behind every piece. If your map arrives damaged, or there is a defect in how it was printed or finished, we will remake or refund it, free, within 30 days of delivery.',
   },
   {
     heading: 'Cancellations and changes',
-    body: 'You may cancel or change your order any time before you approve the proof. Confirm your cancellation window and whether any deposit is non-refundable. (EDIT)',
+    body: 'You can change or cancel your order any time before you approve your proof. Once you approve the proof, your map goes into production and can no longer be changed or cancelled.',
   },
   {
-    heading: 'Refund method and timing',
-    body: 'Approved refunds are issued to the original payment method within X business days. Confirm your refund timing here. (EDIT)',
-  },
-  {
-    heading: 'How to start a return or claim',
-    body: 'Email contact@terranemaps.com with your order number and a description of the issue. Confirm your full returns process here. (EDIT)',
+    heading: 'The proof protects you',
+    body: 'The proof is your chance to get every detail right. We email you the final render and print nothing until you approve it, so you always see exactly what you are getting first.',
   },
 ];
 
 export default function Returns() {
   return (
     <PageShell eyebrow="Policy" title="Returns & Remakes">
-      <div className="reveal mb-10 flex items-start gap-3 rounded-sm border border-[var(--line-strong)] bg-[var(--panel-solid)] p-4">
-        <Info size={18} className="mt-0.5 shrink-0 text-[var(--rust)]" />
-        <p className="text-sm leading-relaxed text-[var(--cream-dim)]">
-          Starter text — review with a professional before launch.
+      <div className="max-w-2xl">
+        <p className="reveal t-lead">
+          Every Terrane map is built from scratch for one specific place, as an
+          edition of one. That shapes how returns work.
         </p>
-      </div>
 
-      <div className="max-w-2xl space-y-8">
-        {SECTIONS.map((s) => (
-          <div key={s.heading} className="reveal">
-            <h2 className="font-display font-bold text-xl">{s.heading}</h2>
-            <p className="mt-2 leading-relaxed text-[var(--cream-dim)]">{s.body}</p>
-          </div>
-        ))}
-        <p className="reveal mono-label text-[var(--slate-dim)]">Last updated: [DATE — EDIT]</p>
+        <div className="mt-12 space-y-9" data-reveal-group>
+          {SECTIONS.map((s) => (
+            <section key={s.heading} className="reveal">
+              <h2 className="t-h3">{s.heading}</h2>
+              <p className="mt-2.5 leading-relaxed text-[var(--cream-dim)]">{s.body}</p>
+            </section>
+          ))}
+
+          <section className="reveal">
+            <h2 className="t-h3">How to reach us</h2>
+            <p className="mt-2.5 leading-relaxed text-[var(--cream-dim)]">
+              Email{' '}
+              <a href={`mailto:${PRODUCT.contact}`} className="prose-link">
+                {PRODUCT.contact}
+              </a>{' '}
+              within 30 days of delivery with your order number and a photo of the
+              issue. We will sort out a remake or refund right away — no runaround.
+            </p>
+          </section>
+        </div>
+
+        <p className="reveal mono-meta mt-12 text-[var(--slate-dim)]">
+          Last updated: July 2026
+        </p>
       </div>
     </PageShell>
   );

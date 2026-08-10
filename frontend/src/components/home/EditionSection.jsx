@@ -1,44 +1,50 @@
 import React from 'react';
-import { LEGEND_POINTS, SAMPLE_LEGEND } from '../../mock/mock';
+import SectionHead from '../SectionHead';
+import Plate from '../Plate';
+import { LEGEND_POINTS } from '../../content/home';
 
+/**
+ * EditionSection — the legend, and the promise printed into it.
+ *
+ * The legend block is the single strongest thing Terrane makes: coordinates to
+ * four decimals, a true scale ratio, an edition of one. It used to sit in a
+ * small card beside a stock photo. Here it is the subject, at full size.
+ */
 export default function EditionSection() {
   return (
-    <section id="edition" className="section bg-[var(--bg-1)] border-t border-[var(--line)]">
-      <div className="container-x grid lg:grid-cols-2 gap-16 items-center">
-        <div>
-          <div className="reveal flex items-center gap-4 mb-8">
-            <span className="w-10 h-px bg-[var(--rust)]" />
-            <span className="mono-label text-[var(--rust)]">Edition 1 of 1</span>
-          </div>
-          <h2 className="reveal font-display font-black text-[2.2rem] sm:text-[2.9rem] leading-[1.04] tracking-[-0.02em] max-w-xl">
-            The certificate is printed into the map.
-          </h2>
-          <ul className="mt-9 space-y-5">
-            {LEGEND_POINTS.map((p, i) => (
-              <li key={p} className="reveal flex gap-4">
-                <span className="mono-label text-[var(--rust)] mt-0.5 shrink-0">{String(i + 1).padStart(2, '0')}</span>
-                <span className="text-[var(--cream-dim)] leading-relaxed">{p}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+    <section id="edition" className="section band">
+      <div className="container-x">
+        <div className="grid items-start gap-14 lg:grid-cols-2 lg:gap-20">
+          <div>
+            <SectionHead
+              eyebrow="Edition 1 of 1"
+              title="The certificate is printed into the map."
+            />
 
-        <div className="reveal relative">
-          <div className="rounded-sm overflow-hidden border border-[var(--line-strong)] bg-[var(--bg-2)] shadow-[0_40px_80px_-40px_rgba(0,0,0,0.9)]">
-            <img src={SAMPLE_LEGEND.image} alt="Relief map" className="w-full h-64 object-cover" />
-            <div className="p-6 border-t border-[var(--line)]">
-              <div className="font-display font-bold text-xl">{SAMPLE_LEGEND.place}</div>
-              <div className="text-[var(--slate)] text-sm mt-1">{SAMPLE_LEGEND.sub}</div>
-              <div className="hairline my-5" />
-              <div className="grid grid-cols-2 gap-y-4 gap-x-6">
-                {[['Coordinates', SAMPLE_LEGEND.coords], ['Scale', SAMPLE_LEGEND.scale], ['Data', SAMPLE_LEGEND.data], ['Edition', SAMPLE_LEGEND.edition]].map(([k, v]) => (
-                  <div key={k}>
-                    <div className="mono-label text-[var(--slate-dim)] mb-1">{k}</div>
-                    <div className="font-mono text-[var(--cream)] text-[0.8rem]">{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <ol className="mt-10 list-none space-y-6 p-0" data-reveal-group>
+              {LEGEND_POINTS.map((p, i) => (
+                <li key={p} className="reveal flex gap-5">
+                  <span className="mono-meta tnum mt-1 shrink-0 text-[var(--rust)]">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="leading-relaxed text-[var(--cream-dim)]">{p}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="reveal ticks lg:mt-4">
+            <Plate
+              place="Lake Tahoe, California"
+              sub="Sierra Nevada"
+              lat={39.0968}
+              lng={-120.0324}
+              scale="1 : 90,000"
+              relief={0.62}
+            />
+            <p className="mono-meta mt-4 text-[var(--slate-dim)]">
+              Contour rendering · the legend below is the one that gets printed
+            </p>
           </div>
         </div>
       </div>

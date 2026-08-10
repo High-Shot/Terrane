@@ -1,45 +1,61 @@
 import React from 'react';
-import { Compass, Waves, Route } from 'lucide-react';
-import { DATA_SOURCES } from '../../mock/mock';
+import SectionHead from '../SectionHead';
+import { DATA_SOURCES } from '../../content/home';
 
-const SourceIcon = ({ i }) => {
-  const cls = 'text-[var(--rust)]';
-  if (i === 0) return <Compass size={20} className={cls} />;
-  if (i === 1) return <Waves size={20} className={cls} />;
-  return <Route size={20} className={cls} />;
-};
-
+/**
+ * DataSection — provenance.
+ *
+ * Was three cards, each topped with a stock photograph of somewhere that is not
+ * your place. The photographs undercut the argument the section is making, so
+ * they are gone; what is left is the claim, the named dataset behind it, and a
+ * numbered register that reads like a source list on a survey sheet.
+ */
 export default function DataSection() {
   return (
     <section id="the-data" className="section">
       <div className="container-x">
-        <div className="reveal flex items-center gap-4 mb-8">
-          <span className="w-10 h-px bg-[var(--rust)]" />
-          <span className="mono-label text-[var(--rust)]">Built from real data</span>
-        </div>
-        <h2 className="reveal font-display font-black text-[2.4rem] sm:text-[3.2rem] leading-[1.02] tracking-[-0.02em] max-w-3xl">
-          The terrain is not decoration.<br /><span className="text-[var(--slate)]">It is measured.</span>
-        </h2>
-        <p className="reveal mt-7 text-[var(--cream-dim)] leading-relaxed max-w-2xl">
-          Because when it is your place, close enough is not. Every model starts from the same public datasets that surveyors and hydrographers use. We resolve your place to exact coordinates and build the geometry from measurements, not artistic license. If your creek bends, the model bends with it.
-        </p>
+        <SectionHead
+          eyebrow="Built from real data"
+          title={
+            <>
+              The terrain is not decoration.
+              <br />
+              <span className="text-[var(--slate)]">It is measured.</span>
+            </>
+          }
+          lead="Because when it is your place, close enough is not. Every model starts from the same public datasets that surveyors and hydrographers use. We resolve your place to exact coordinates and build the geometry from measurements, not artistic license. If your creek bends, the model bends with it."
+        />
 
-        <div className="mt-16 grid md:grid-cols-3 gap-6">
+        <ol
+          className="mt-16 grid list-none gap-px border border-[var(--line)] bg-[var(--line)] p-0 md:grid-cols-3"
+          data-reveal-group
+        >
           {DATA_SOURCES.map((d, i) => (
-            <div key={d.tag} className="reveal data-card rounded-sm overflow-hidden border border-[var(--line)] bg-[var(--panel-solid)]">
-              <div className="relative h-48 overflow-hidden">
-                <img src={d.image} alt={d.title} className="w-full h-full object-cover" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(11,28,41,0.2), rgba(11,28,41,0.85))' }} />
-                <div className="absolute top-4 left-4 flex items-center gap-2"><SourceIcon i={i} /></div>
+            <li
+              key={d.source}
+              className="reveal flex flex-col bg-[var(--bg-0)] p-8 transition-colors duration-300 hover:bg-[var(--bg-1)]"
+            >
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="mono-label text-[var(--rust)]">{d.tag}</span>
+                <span className="mono-meta tnum text-[var(--slate-dim)]">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
               </div>
-              <div className="p-6">
-                <div className="mono-label text-[var(--rust)]">{d.tag}</div>
-                <h3 className="font-display font-bold text-xl mt-3">{d.title}</h3>
-                <p className="text-[var(--slate)] text-sm mt-3 leading-relaxed">{d.body}</p>
+
+              <h3 className="t-h3 mt-6">{d.title}</h3>
+              <p className="t-body mt-3 flex-1 text-sm">{d.body}</p>
+
+              {/* mt-auto so the source rules line up across all three cards
+                  regardless of how long each body runs. */}
+              <div className="mt-auto border-t border-[var(--line)] pt-4">
+                <span className="mono-meta text-[var(--slate-dim)]">Source</span>
+                <div className="mt-1 font-mono text-[0.8rem] text-[var(--cream)]">
+                  {d.source}
+                </div>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
     </section>
   );

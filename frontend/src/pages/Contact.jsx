@@ -4,7 +4,10 @@ import { toast } from 'sonner';
 import PageShell from '../components/PageShell';
 import { submitContact, getClientId } from '../lib/api';
 
-const SUPPORT_EMAIL = 'contact@terranemaps.com';
+// The address the shop actually reads. This page previously used
+// contact@terranemaps.com, which does not match the address published on the
+// Shopify storefront, the FAQ, or the shipping and returns policies.
+const SUPPORT_EMAIL = 'barcus@terranemaps.com';
 
 export default function Contact() {
   const [form, setForm] = useState({ name: '', email: '', message: '' });
@@ -134,7 +137,10 @@ export default function Contact() {
           </a>
           <div className="hairline my-7" />
           <p className="text-sm leading-relaxed text-[var(--slate)]">
-            OWNER: confirm the support email address and typical response time here. (EDIT)
+            We are a small shop and we answer our own email — usually within one
+            business day. If it is about an existing order, include your order
+            number. If something arrived damaged, attach a photo and we will
+            remake or refund it.
           </p>
         </div>
       </div>

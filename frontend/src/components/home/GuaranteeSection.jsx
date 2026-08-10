@@ -1,50 +1,62 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, Truck, PackageCheck, ArrowRight } from 'lucide-react';
+import { Clock, Truck, ShieldCheck, ArrowRight } from 'lucide-react';
+import SectionHead from '../SectionHead';
+import { GUARANTEES } from '../../content/home';
 
-const CHIPS = [
-  { icon: Clock, label: 'Ships in ~X weeks — EDIT' },
-  { icon: Truck, label: 'Free US shipping — EDIT' },
-  { icon: PackageCheck, label: 'Tracking included — EDIT' },
-];
+const ICONS = { clock: Clock, truck: Truck, shield: ShieldCheck };
 
+/**
+ * GuaranteeSection.
+ *
+ * The three chips here used to read "Ships in ~X weeks — EDIT", "Free US
+ * shipping — EDIT" and "Tracking included — EDIT" on the live site. Every one
+ * of those had a real answer already published on the site's own Shipping,
+ * Returns and FAQ pages; the figures now come from there (see content/home.js).
+ */
 export default function GuaranteeSection() {
   return (
-    <section id="guarantee" className="section">
+    <section id="guarantee" className="section-tight">
       <div className="container-x">
-        <div className="reveal max-w-3xl">
-          <div className="flex items-center gap-4 mb-8">
-            <span className="w-10 h-px bg-[var(--rust)]" />
-            <span className="mono-label text-[var(--rust)]">The promise</span>
-          </div>
-          <h2 className="font-display font-black text-[2.4rem] sm:text-[3.2rem] leading-[1.02] tracking-[-0.02em]">
-            You approve a proof <span className="text-[var(--rust)]">before we print.</span>
-          </h2>
-          <p className="mt-6 text-lg leading-relaxed text-[var(--cream-dim)]">
-            We build the final render from survey data and send it to you first. Nothing goes on the
-            bed until you say yes. If it is not right, we fix it.
-          </p>
-        </div>
+        <SectionHead
+          eyebrow="The promise"
+          title={
+            <>
+              You approve a proof{' '}
+              <span className="text-[var(--rust)]">before we print.</span>
+            </>
+          }
+          lead="We build the final render from survey data and send it to you first. Nothing goes on the bed until you say yes. If it is not right, we fix it."
+        />
 
-        <div className="mt-12 grid gap-4 sm:grid-cols-3">
-          {CHIPS.map((c) => {
-            const Icon = c.icon;
+        <ul
+          className="mt-12 grid list-none gap-4 p-0 sm:grid-cols-3"
+          data-reveal-group
+        >
+          {GUARANTEES.map((c) => {
+            const Icon = ICONS[c.icon];
             return (
-              <div
+              <li
                 key={c.label}
-                className="reveal flex items-center gap-3 rounded-sm border border-[var(--line-strong)] bg-[var(--panel-solid)] px-5 py-4"
+                className="reveal flex items-start gap-3.5 rounded-sm border border-[var(--line-strong)] bg-[var(--panel-solid)] px-5 py-5"
               >
-                <Icon size={20} className="shrink-0 text-[var(--rust)]" />
-                <span className="mono-label text-[var(--cream-dim)]">{c.label}</span>
-              </div>
+                <Icon
+                  size={19}
+                  aria-hidden="true"
+                  className="mt-0.5 shrink-0 text-[var(--rust)]"
+                />
+                <span className="text-sm leading-relaxed text-[var(--cream-dim)]">
+                  {c.label}
+                </span>
+              </li>
             );
           })}
-        </div>
+        </ul>
 
         <div className="reveal mt-10 flex flex-wrap items-center gap-4">
           <Link to="/studio">
-            <button className="btn-rust flex items-center gap-2">
-              Design your map <ArrowRight size={16} />
+            <button className="btn-rust">
+              Design your map <ArrowRight size={16} aria-hidden="true" />
             </button>
           </Link>
           <Link to="/faq">

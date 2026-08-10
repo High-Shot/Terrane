@@ -1,27 +1,54 @@
 import React from 'react';
-import { STEPS } from '../../mock/mock';
+import SectionHead from '../SectionHead';
+import { STEPS } from '../../content/home';
 
+/**
+ * HowSection — the four steps, on a rail.
+ *
+ * Previously four equal boxes in a bordered grid, which read as four unrelated
+ * facts. A process is a sequence, so it is drawn as one: a hairline runs
+ * through the step markers, left to right on desktop and top to bottom on
+ * mobile, and the proof step is marked as the one where control sits with the
+ * buyer.
+ */
 export default function HowSection() {
   return (
-    <section id="how" className="section">
+    <section id="how" className="section-tight">
       <div className="container-x">
-        <div className="reveal flex items-center gap-4 mb-8">
-          <span className="w-10 h-px bg-[var(--rust)]" />
-          <span className="mono-label text-[var(--rust)]">How it works</span>
-        </div>
-        <h2 className="reveal font-display font-black text-[2.4rem] sm:text-[3.2rem] leading-[1.02] tracking-[-0.02em] max-w-3xl">
-          You design it. We check it. <span className="text-[var(--rust)]">Twice.</span>
-        </h2>
+        <SectionHead
+          eyebrow="How it works"
+          title={
+            <>
+              You design it. We check it. <span className="text-[var(--rust)]">Twice.</span>
+            </>
+          }
+        />
 
-        <div className="mt-16 grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-[var(--line)] border border-[var(--line)]">
+        <ol
+          className="relative mt-16 grid list-none gap-10 p-0 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8"
+          data-reveal-group
+        >
+          {/* The rail. Hidden from assistive tech — the ordered list carries
+              the sequence already. */}
+          <span
+            aria-hidden="true"
+            className="absolute left-[7px] top-2 hidden h-[calc(100%-1rem)] w-px bg-[var(--line)] sm:block lg:left-0 lg:top-[7px] lg:h-px lg:w-full"
+          />
+
           {STEPS.map((s) => (
-            <div key={s.n} className="reveal bg-[var(--bg-0)] p-8 hover:bg-[var(--bg-1)] transition-colors duration-300">
-              <div className="font-display font-black text-[3.4rem] text-[var(--rust)]/25 leading-none">{s.n}</div>
-              <h3 className="font-display font-bold text-lg mt-5">{s.title}</h3>
-              <p className="text-[var(--slate)] text-sm mt-3 leading-relaxed">{s.body}</p>
-            </div>
+            <li key={s.n} className="reveal relative lg:pt-8">
+              <span
+                aria-hidden="true"
+                className="absolute left-0 top-1 block h-3.5 w-3.5 rounded-full border border-[var(--rust)] bg-[var(--bg-0)] sm:top-1.5 lg:top-0"
+              />
+              <div className="pl-8 lg:pl-0">
+                <span className="mono-meta tnum text-[var(--rust)]">{s.n}</span>
+                <h3 className="t-h3 mt-3">{s.title}</h3>
+                <p className="t-body mt-3 text-sm">{s.body}</p>
+              </div>
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
     </section>
   );

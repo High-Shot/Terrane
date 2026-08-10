@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import PageShell from '../components/PageShell';
-import MediaSlot from '../components/MediaSlot';
+import Plate from '../components/Plate';
 import NotFound from './NotFound';
 import { PLACES, placeBySlug } from '../data/places';
 import { fmtLat, fmtLng } from '../lib/format';
@@ -76,19 +76,27 @@ export default function PlacePage() {
           </div>
         </div>
 
-        <MediaSlot
-          label={`PHOTO: ${place.name} — finished 8×8 relief map`}
-          ratio="1/1"
-          className="reveal w-full max-w-lg"
-        />
+        {/* Was a dashed "Replace" placeholder box awaiting product photography.
+            A contour plate of the place itself is both on-brand and honest —
+            the caption below says what it is. */}
+        <div className="reveal w-full max-w-lg">
+          <Plate
+            place={place.name}
+            sub={place.sub}
+            lat={place.lat}
+            lng={place.lng}
+            relief={0.55}
+            legend={false}
+          />
+          <p className="mono-meta mt-3 text-[var(--slate-dim)]">
+            Contour rendering · your proof is built from survey data
+          </p>
+        </div>
       </div>
 
       {/* How it works — the studio flow in three beats */}
       <div className="mt-20">
-        <div className="reveal flex items-center gap-4 mb-6">
-          <span className="w-10 h-px bg-[var(--rust)]" />
-          <span className="mono-label text-[var(--rust)]">How it works</span>
-        </div>
+        <h2 className="reveal eyebrow mono-label mb-6">How it works</h2>
         <div className="grid sm:grid-cols-3 gap-px bg-[var(--line)] border border-[var(--line)]">
           {STEPS.map((s) => (
             <div key={s.n} className="reveal bg-[var(--bg-0)] p-7 hover:bg-[var(--bg-1)] transition-colors duration-300">
@@ -102,10 +110,7 @@ export default function PlacePage() {
 
       {/* More places */}
       <div className="mt-20">
-        <div className="reveal flex items-center gap-4 mb-6">
-          <span className="w-10 h-px bg-[var(--rust)]" />
-          <span className="mono-label text-[var(--rust)]">More places</span>
-        </div>
+        <h2 className="reveal eyebrow mono-label mb-6">More places</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {others.map((p) => (
             <Link
