@@ -2,35 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: 'Inter', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+/* --------------------------------------------------------------------------
+   shadcn / Tailwind token bridge.
+
+   These HSL triples are the same palette defined as hex in App.css — kept in
+   step by hand so the Radix-derived UI (dialogs, selects, toasts) and the
+   hand-built marketing surfaces cannot drift apart the way they had.
+   Source of truth for the values and their contrast rationale: App.css.
+   -------------------------------------------------------------------------- */
 
 @layer base {
   :root {
-    --background: 202 51% 10%;
-    --foreground: 45 42% 89%;
-    --card: 202 45% 15%;
-    --card-foreground: 45 42% 89%;
-    --popover: 202 45% 12%;
-    --popover-foreground: 45 42% 89%;
-    --primary: 25 58% 53%;
-    --primary-foreground: 20 60% 6%;
-    --secondary: 202 35% 18%;
-    --secondary-foreground: 45 42% 89%;
-    --muted: 202 30% 20%;
-    --muted-foreground: 205 15% 60%;
-    --accent: 25 58% 53%;
-    --accent-foreground: 20 60% 6%;
+    --background: 205 55% 8%;        /* --bg-0        #09161f */
+    --foreground: 43 56% 90%;        /* --cream       #f4ecd8 */
+
+    --card: 203 52% 14%;             /* --panel-solid #112836 */
+    --card-foreground: 43 56% 90%;
+
+    --popover: 204 56% 11%;          /* --bg-1        #0c1e2a */
+    --popover-foreground: 43 56% 90%;
+
+    --primary: 25 61% 54%;           /* --rust        #d17f43 */
+    --primary-foreground: 25 70% 5%; /* --rust-ink    #170c04 */
+
+    --secondary: 203 53% 14%;        /* --bg-2        #112938 */
+    --secondary-foreground: 43 56% 90%;
+
+    --muted: 203 53% 16%;
+    --muted-foreground: 206 19% 57%; /* --slate-dim   #7c93a5 — AA on all surfaces */
+
+    --accent: 25 61% 54%;
+    --accent-foreground: 25 70% 5%;
+
     --destructive: 0 62% 45%;
-    --destructive-foreground: 45 42% 89%;
-    --border: 202 30% 22%;
-    --input: 202 30% 22%;
-    --ring: 25 58% 53%;
-    --radius: 0.25rem;
+    --destructive-foreground: 43 56% 90%;
+
+    --border: 203 40% 20%;
+    --input: 203 40% 20%;
+    --ring: 26 76% 63%;              /* --rust-bright #e89757 */
+
+    --radius: 0.1875rem;             /* 3px — matches --r */
   }
 }
 
@@ -38,6 +49,7 @@ body {
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
   }

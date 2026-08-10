@@ -185,26 +185,70 @@ export default function Studio() {
     setSearchQ(p.name);
   };
 
-  // One-shot on mount: analytics beacon + deep-link support. Place pages link
-  // here as /studio?lat=..&lng=..&name=..&sub=.. — if the params hold valid
-  // coordinates, frame that place immediately. Ref-guarded so it runs exactly
-  // once (StrictMode double-invokes effects in dev); malformed params are
-  // ignored and the default place stands.
+  // One-shot on mount: analytics beacon + deep-link support.
+  //
+  // Two link shapes are honored:
+  //   /studio?lat=..&lng=..&name=..&sub=..  — place pages, framed immediately
+  //   /studio?q=<free text>                 — the homepage hero search box,
+  //                                           geocoded here on arrival
+  //
+  // Ref-guarded so it runs exactly once (StrictMode double-invokes effects in
+  // dev); malformed params are ignored and the default place stands.
   const bootRef = useRef(false);
   useEffect(() => {
     if (bootRef.current) return;
     bootRef.current = true;
     track('studio_opened');
+
+    let params;
     try {
-      const params = new URLSearchParams(window.location.search);
-      const lat = parseFloat(params.get('lat'));
-      const lng = parseFloat(params.get('lng'));
-      if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-        const name = params.get('name');
-        const sub = params.get('sub');
-        applyPlace({ name: name || `${lat}, ${lng}`, sub: sub || '', lat: +lat, lng: +lng });
-      }
-    } catch { /* malformed query string — keep the default place */ }
+      params = new URLSearchParams(window.location.search);
+    } catch {
+      return; // malformed query string — keep the default place
+    }
+
+    const lat = parseFloat(params.get('lat'));
+    const lng = parseFloat(params.get('lng'));
+    if (
+      Number.isFinite(lat) && Number.isFinite(lng) &&
+      lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+    ) {
+      applyPlace({
+        name: params.get('name') || `${lat}, ${lng}`,
+        sub: params.get('sub') || '',
+        lat: +lat,
+        lng: +lng,
+      });
+      return;
+    }
+
+    const q = (params.get('q') || '').trim().slice(0, 120);
+    if (!q) return;
+
+    // Show the term in the box straight away so the field never looks empty
+    // while the geocoder is still working.
+    setSearchQ(q);
+    setSearching(true);
+    let cancelled = false;
+    searchPlaces(q)
+      .then((results) => {
+        if (cancelled) return;
+        if (results && results.length) {
+          applyPlace(results[0]);
+          track('place_searched', { q: q.slice(0, 80), via: 'deeplink' });
+          toast.success(`Framed ${results[0].name}`);
+        } else {
+          toast.error(`No place found for “${q}” — try a different search`);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Search failed. Try again.');
+      })
+      .finally(() => {
+        if (!cancelled) setSearching(false);
+      });
+
+    return () => { cancelled = true; };
     // Intentionally mount-only; applyPlace identity is irrelevant for a one-shot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -357,8 +401,8 @@ export default function Studio() {
 
             {tab === 'search' && (
               <div className="mt-5 relative" ref={searchBoxRef}>
-                <label className="text-[var(--cream-dim)] text-sm">Address, city, or landmark</label>
-                <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                <label htmlFor="studio-search" className="text-[var(--cream-dim)] text-sm">Address, city, or landmark</label>
+                <input id="studio-search" value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   placeholder="Fairhope, Alabama"
                   className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
                 {suggests.length > 0 && (
@@ -388,13 +432,13 @@ export default function Studio() {
             {tab === 'coords' && (
               <div className="mt-5 grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[var(--cream-dim)] text-sm">Latitude</label>
-                  <input value={latIn} onChange={(e) => setLatIn(e.target.value)} placeholder="30.5230"
+                  <label htmlFor="studio-lat" className="text-[var(--cream-dim)] text-sm">Latitude</label>
+                  <input id="studio-lat" value={latIn} onChange={(e) => setLatIn(e.target.value)} placeholder="30.5230"
                     className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
                 </div>
                 <div>
-                  <label className="text-[var(--cream-dim)] text-sm">Longitude</label>
-                  <input value={lngIn} onChange={(e) => setLngIn(e.target.value)} placeholder="-87.9033"
+                  <label htmlFor="studio-lng" className="text-[var(--cream-dim)] text-sm">Longitude</label>
+                  <input id="studio-lng" value={lngIn} onChange={(e) => setLngIn(e.target.value)} placeholder="-87.9033"
                     className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
                 </div>
                 <button onClick={handleCoords} className="btn-rust col-span-2 mt-1 flex items-center justify-center gap-2"><Crosshair size={15} /> Go to coordinates</button>
@@ -434,8 +478,8 @@ export default function Studio() {
                   </div>
                 )}
                 <div className="mt-4 flex items-center gap-3">
-                  <span className="text-[var(--cream-dim)] text-sm">Route color</span>
-                  <input type="color" value={routeColor} onChange={(e) => setRouteColor(e.target.value)} className="w-9 h-9 rounded-sm bg-transparent border border-[var(--line-strong)] cursor-pointer" />
+                  <label htmlFor="studio-route-color" className="text-[var(--cream-dim)] text-sm">Route color</label>
+                  <input id="studio-route-color" type="color" value={routeColor} onChange={(e) => setRouteColor(e.target.value)} className="w-9 h-9 rounded-sm bg-transparent border border-[var(--line-strong)] cursor-pointer" />
                 </div>
               </div>
             )}
@@ -466,6 +510,7 @@ export default function Studio() {
                 </span>
               </div>
               <input type="range" min="200" max="50000" step="100" value={distanceM}
+                aria-label="Frame distance from center to edge, in meters"
                 onChange={(e) => setDistanceM(Number(e.target.value))}
                 className="w-full mt-3 accent-[var(--rust)] cursor-pointer" />
             </div>
@@ -496,10 +541,10 @@ export default function Studio() {
           {/* 04 LEGEND */}
           <div className="rounded-sm border border-[var(--line)] bg-[var(--panel-solid)] p-7">
             <SectionTitle n="04" title="Legend" />
-            <label className="text-[var(--cream-dim)] text-sm">Place name on the legend</label>
-            <input value={legendName} onChange={(e) => setLegendName(e.target.value)}
+            <label htmlFor="studio-legend-name" className="text-[var(--cream-dim)] text-sm">Place name on the legend</label>
+            <input id="studio-legend-name" value={legendName} onChange={(e) => setLegendName(e.target.value)}
               className="w-full mt-2 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] focus:outline-none focus:border-[var(--rust)] transition-colors" />
-            <input value={legendLine2} onChange={(e) => setLegendLine2(e.target.value)} placeholder="Second line, optional. A date, a name, the reason it matters."
+            <input value={legendLine2} onChange={(e) => setLegendLine2(e.target.value)} aria-label="Second legend line (optional)" placeholder="Second line, optional. A date, a name, the reason it matters."
               className="w-full mt-3 bg-[var(--bg-0)] border border-[var(--line-strong)] rounded-sm px-4 py-3 text-[var(--cream)] placeholder:text-[var(--slate-dim)] text-sm focus:outline-none focus:border-[var(--rust)] transition-colors" />
             <div className="mt-4">
               <label className="text-[var(--cream-dim)] text-sm">Coordinates format</label>

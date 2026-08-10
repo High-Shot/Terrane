@@ -1,52 +1,81 @@
 import React from 'react';
-import { Info } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import PageShell from '../components/PageShell';
+import { PRODUCT } from '../content/home';
+
+/**
+ * Shipping policy.
+ *
+ * Replaces a page that shipped "[CARRIER — EDIT]", "about X business days",
+ * "within X days" and "Last updated: [DATE — EDIT]" to production, above a
+ * banner reading "Starter text — review with a professional before launch".
+ *
+ * This is the finished policy already written for the Shopify storefront
+ * (shopify/pages/shipping.html), ported verbatim in substance so the two
+ * storefronts cannot state different terms. It also corrects the contact
+ * address, which read contact@terranemaps.com here and barcus@terranemaps.com
+ * everywhere else.
+ */
 
 const SECTIONS = [
   {
-    heading: 'Processing and production time',
-    body: 'Every Terrane map is made to order and does not begin production until you approve your proof. After approval, allow about X business days for production before your order ships. (EDIT)',
+    heading: 'Made to order',
+    body: 'You frame your place in the studio and we email you a proof. Once you approve it, we print your map, inspect it by hand, mount it, and ship it. Nothing is printed before your approval.',
   },
   {
-    heading: 'Shipping methods and delivery',
-    body: 'We ship within the United States via [CARRIER — EDIT] with tracking included. Estimated transit time after production is X–Y business days. Confirm carriers, service levels, and delivery estimates here. (EDIT)',
+    heading: 'How long it takes',
+    body: 'Most maps ship within one week of proof approval. If anything about your piece needs extra time, we will tell you before we print.',
   },
   {
-    heading: 'Shipping cost',
-    body: 'Standard U.S. shipping is free. Expedited options and their pricing, if offered, are described here. (EDIT)',
-  },
-  {
-    heading: 'International shipping',
-    body: 'International shipping may be available on request. Buyers are responsible for any customs duties, taxes, or import fees. Confirm which countries you ship to and how duties are handled. (EDIT)',
+    heading: 'Where we ship',
+    body: 'Free shipping within the United States, with tracking included on every order. We do not offer international shipping yet — if you are outside the US, email us and we will let you know when we can reach you.',
   },
   {
     heading: 'Tracking',
-    body: 'You will receive a tracking number by email once your order ships. Confirm how and when tracking is sent. (EDIT)',
-  },
-  {
-    heading: 'Lost or damaged shipments',
-    body: 'If your order arrives damaged, contact us at contact@terranemaps.com within X days with photos and we will make it right. See our Returns page for details. (EDIT)',
+    body: 'You will receive a tracking number by email as soon as your map is on its way.',
   },
 ];
 
 export default function Shipping() {
   return (
     <PageShell eyebrow="Policy" title="Shipping">
-      <div className="reveal mb-10 flex items-start gap-3 rounded-sm border border-[var(--line-strong)] bg-[var(--panel-solid)] p-4">
-        <Info size={18} className="mt-0.5 shrink-0 text-[var(--rust)]" />
-        <p className="text-sm leading-relaxed text-[var(--cream-dim)]">
-          Starter text — review with a professional before launch.
+      <div className="max-w-2xl">
+        <p className="reveal t-lead">
+          Every Terrane map is made to order, so the timeline starts when you
+          approve your proof — not the moment you order.
         </p>
-      </div>
 
-      <div className="max-w-2xl space-y-8">
-        {SECTIONS.map((s) => (
-          <div key={s.heading} className="reveal">
-            <h2 className="font-display font-bold text-xl">{s.heading}</h2>
-            <p className="mt-2 leading-relaxed text-[var(--cream-dim)]">{s.body}</p>
-          </div>
-        ))}
-        <p className="reveal mono-label text-[var(--slate-dim)]">Last updated: [DATE — EDIT]</p>
+        <div className="mt-12 space-y-9" data-reveal-group>
+          {SECTIONS.map((s) => (
+            <section key={s.heading} className="reveal">
+              <h2 className="t-h3">{s.heading}</h2>
+              <p className="mt-2.5 leading-relaxed text-[var(--cream-dim)]">{s.body}</p>
+            </section>
+          ))}
+
+          <section className="reveal">
+            <h2 className="t-h3">If it arrives damaged</h2>
+            <p className="mt-2.5 leading-relaxed text-[var(--cream-dim)]">
+              Your map ships ready to hang, packed to protect the relief in
+              transit. If anything looks wrong when it arrives, see{' '}
+              <Link to="/returns" className="prose-link">
+                Returns
+              </Link>{' '}
+              — we will remake or refund it, free.
+            </p>
+          </section>
+        </div>
+
+        <p className="reveal mt-12 text-sm text-[var(--slate)]">
+          Questions? Email{' '}
+          <a href={`mailto:${PRODUCT.contact}`} className="prose-link">
+            {PRODUCT.contact}
+          </a>
+          .
+        </p>
+        <p className="reveal mono-meta mt-4 text-[var(--slate-dim)]">
+          Last updated: July 2026
+        </p>
       </div>
     </PageShell>
   );
