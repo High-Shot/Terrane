@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, MapPin } from 'lucide-react';
-import { SIZES } from '../../mock/mock';
+import { SIZES } from '../../content/home';
 
 export default function SizesSection() {
   return (

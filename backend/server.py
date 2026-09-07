@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 import httpx
 import bcrypt
 import jwt
+from contextlib import asynccontextmanager
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -74,7 +75,42 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'dev-secret-change-me')
 JWT_ALG = 'HS256'
 JWT_EXP_DAYS = 30
 
-app = FastAPI()
+async def _ensure_indexes():
+    """Create indexes on frequently-queried fields for production performance."""
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.users.create_index("id")
+        await db.designs.create_index("user_id")
+        await db.designs.create_index("client_id")
+        await db.designs.create_index("created_at")
+        await db.routes.create_index("id")
+        await db.routes.create_index("client_id")
+        await db.routes.create_index("user_id")
+        await db.orders.create_index("id")
+        await db.orders.create_index("client_id")
+        await db.orders.create_index("user_id")
+        await db.build_requests.create_index("created_at")
+        await db.build_requests.create_index("client_id")
+        await db.build_requests.create_index("user_id")
+        await db.build_requests.create_index("status")
+        await db.contacts.create_index("created_at")
+        await db.events.create_index("created_at")
+        await db.events.create_index("name")
+        logger.info("MongoDB indexes ensured")
+    except Exception as e:
+        logger.error(f"Failed to ensure indexes: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await _ensure_indexes()
+    yield
+    # Shutdown
+    client.close()
+
+
+app = FastAPI(lifespan=lifespan)
 api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -1111,35 +1147,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def ensure_indexes():
-    """Create indexes on frequently-queried fields for production performance."""
-    try:
-        await db.users.create_index("email", unique=True)
-        await db.users.create_index("id")
-        await db.designs.create_index("user_id")
-        await db.designs.create_index("client_id")
-        await db.designs.create_index("created_at")
-        await db.routes.create_index("id")
-        await db.routes.create_index("client_id")
-        await db.routes.create_index("user_id")
-        await db.orders.create_index("id")
-        await db.orders.create_index("client_id")
-        await db.orders.create_index("user_id")
-        await db.build_requests.create_index("created_at")
-        await db.build_requests.create_index("client_id")
-        await db.build_requests.create_index("user_id")
-        await db.build_requests.create_index("status")
-        await db.contacts.create_index("created_at")
-        await db.events.create_index("created_at")
-        await db.events.create_index("name")
-        logger.info("MongoDB indexes ensured")
-    except Exception as e:
-        logger.error(f"Failed to ensure indexes: {e}")
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

@@ -210,3 +210,17 @@ export const NAV_LINKS = [
   { label: 'Gallery', href: '/#gallery' },
   { label: 'FAQ', href: '/faq' },
 ];
+
+/**
+ * Sizes offered. Currently a single made-to-order format; the copy is the
+ * site's own voice, and the size/price track PRODUCT above so there is one
+ * source of truth. (Previously this lived in the leftover mock/ scaffold.)
+ */
+export const SIZES = [
+  {
+    size: PRODUCT.size,
+    price: PRODUCT.price,
+    desc:
+      'One square foot of the place that matters, built to order. Eight inches on a side, printed in relief from real elevation data, mounted and ready to hang. Big enough for a neighborhood, a stretch of shoreline, or the trailhead you keep coming back to — small enough to live anywhere on the wall.',
+  },
+];
