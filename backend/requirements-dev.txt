@@ -1,0 +1,3 @@
+# Test/dev-only dependencies (kept out of the runtime image).
+-r requirements.txt
+pytest>=8.2.0
