@@ -20,6 +20,8 @@ import bcrypt
 import jwt
 from contextlib import asynccontextmanager
 
+from ratelimit import rate_limit, enforce as enforce_rate_limit
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -53,6 +55,17 @@ EVENT_NAMES = {"pageview", "studio_opened", "place_searched", "build_request_sub
 # Guard against silently recording $0 "demo" orders in production. Demo checkout
 # (used when no PayPal keys are set) is only allowed when explicitly enabled.
 ALLOW_DEMO_CHECKOUT = os.environ.get('ALLOW_DEMO_CHECKOUT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+
+# Rate limits, as (max requests, window seconds) per client IP. Sized to be
+# invisible to a real visitor and painful to a script: the analytics beacon is
+# generous because a single page view fires several, while auth and the
+# email-sending endpoints are tight.
+RL_REGISTER = (5, 3600)
+RL_LOGIN_IP = (10, 300)
+RL_LOGIN_EMAIL = (5, 900)   # also per-email, so one IP can't grind one account
+RL_CONTACT = (5, 3600)
+RL_EVENTS = (120, 60)
+RL_UPLOAD = (20, 3600)
 
 # Email config (generic SMTP so any provider works via env). Leave SMTP_HOST
 # blank to disable email — build requests are still saved regardless.
@@ -221,7 +234,13 @@ class ContactCreate(BaseModel):
 
 
 class CaptureBody(BaseModel):
+    # Echoed back by the PayPal SDK. It is only ever compared against the id we
+    # stored at create time — never used to decide *which* PayPal order to
+    # capture. See capture_order.
     paypal_order_id: Optional[str] = None
+    # Proof the caller is the buyer who created this order (guest checkout has
+    # no account). Optional so a signed-in owner can capture without it.
+    client_id: Optional[str] = None
 
 
 class UserPublic(BaseModel):
@@ -453,7 +472,7 @@ async def config():
 
 
 # ----------------------------- Auth -----------------------------
-@api_router.post("/auth/register")
+@api_router.post("/auth/register", dependencies=[Depends(rate_limit("register", *RL_REGISTER))])
 async def register(body: RegisterBody, response: Response):
     email = body.email.lower().strip()
     if await db.users.find_one({"email": email}):
@@ -474,9 +493,12 @@ async def register(body: RegisterBody, response: Response):
     return {"token": token, "user": public_user(user)}
 
 
-@api_router.post("/auth/login")
+@api_router.post("/auth/login", dependencies=[Depends(rate_limit("login_ip", *RL_LOGIN_IP))])
 async def login(body: LoginBody, response: Response):
     email = body.email.lower().strip()
+    # Second, per-account limit: the IP limit alone still lets a botnet spread a
+    # guessing run for one inbox across many addresses.
+    enforce_rate_limit("login_email", email, *RL_LOGIN_EMAIL)
     user = await db.users.find_one({"email": email})
     if not user or not verify_pw(body.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -578,7 +600,7 @@ async def elevation(lat: float, lng: float):
 
 
 # ----------------------------- Routes (GPX file storage) -----------------------------
-@api_router.post("/routes/upload")
+@api_router.post("/routes/upload", dependencies=[Depends(rate_limit("upload", *RL_UPLOAD))])
 async def upload_route(client_id: str = Form(...), file: UploadFile = File(...), user=Depends(get_optional_user)):
     if not file.filename.lower().endswith(".gpx"):
         raise HTTPException(status_code=400, detail="Only .gpx files are accepted")
@@ -638,10 +660,20 @@ async def download_route(route_id: str):
 
 
 @api_router.delete("/routes/{route_id}")
-async def delete_route(route_id: str):
+async def delete_route(route_id: str, client_id: Optional[str] = Query(None), user=Depends(get_optional_user)):
     doc = await db.routes.find_one({"id": route_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Route not found")
+    # Same ownership rule as delete_design: a user-owned route needs the
+    # matching signed-in user, a guest route the matching client_id. This
+    # endpoint previously deleted any route for any caller.
+    owner_uid = doc.get("user_id")
+    authorized = (
+        (owner_uid is not None and user is not None and user.get("id") == owner_uid)
+        or (owner_uid is None and client_id is not None and client_id == doc.get("client_id"))
+    )
+    if not authorized:
+        raise HTTPException(status_code=403, detail="You can only delete your own routes")
     try:
         (UPLOAD_DIR / doc["stored_filename"]).unlink(missing_ok=True)
     except Exception as e:
@@ -756,20 +788,84 @@ async def create_order(payload: OrderCreate, user=Depends(get_optional_user)):
         raise HTTPException(status_code=502, detail="Could not create PayPal order")
 
 
+def _order_caller_is_buyer(order: dict, user: Optional[dict], client_id: Optional[str]) -> bool:
+    """Capture is not an admin action — only the buyer may trigger it.
+
+    A signed-in buyer matches on user_id; a guest matches on the client_id they
+    used to create the order. Both are checked because an order created while
+    signed out can be claimed later.
+    """
+    owner_uid = order.get("user_id")
+    if owner_uid is not None and user is not None and user.get("id") == owner_uid:
+        return True
+    order_cid = order.get("client_id")
+    return bool(order_cid) and client_id == order_cid
+
+
+def _paypal_capture_total(pp: dict):
+    """Sum the COMPLETED captures in a PayPal capture response.
+
+    Returns (amount, currency). Currency is None when nothing completed, and a
+    mixed-currency response raises — neither should happen for a single-unit
+    order, but silently taking the first value would defeat the amount check.
+    """
+    total = 0.0
+    currency = None
+    for unit in pp.get("purchase_units") or []:
+        for cap in ((unit.get("payments") or {}).get("captures") or []):
+            if cap.get("status") != "COMPLETED":
+                continue
+            amt = cap.get("amount") or {}
+            cur = amt.get("currency_code")
+            if currency is None:
+                currency = cur
+            elif cur != currency:
+                raise ValueError(f"mixed capture currencies: {currency} and {cur}")
+            total += float(amt.get("value") or 0)
+    return round(total, 2), currency
+
+
 @api_router.post("/orders/{order_id}/capture")
-async def capture_order(order_id: str, body: CaptureBody):
+async def capture_order(order_id: str, body: CaptureBody, user=Depends(get_optional_user)):
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    if order.get("demo") or not PAYPAL_ENABLED:
+    if not _order_caller_is_buyer(order, user, body.client_id):
+        raise HTTPException(status_code=403, detail="You can only complete your own order")
+
+    # Idempotent: PayPal's SDK can fire onApprove twice, and a retry after a
+    # network blip must not re-run the fulfillment hooks (duplicate approval
+    # emails, a second "printing" transition).
+    if order.get("status") in ("paid", "captured"):
+        return {"order_id": order_id, "status": order["status"], "demo": bool(order.get("demo"))}
+
+    if order.get("demo"):
+        if not ALLOW_DEMO_CHECKOUT:
+            raise HTTPException(status_code=409, detail="This order cannot be completed. Please contact us.")
         await db.orders.update_one({"id": order_id}, {"$set": {"status": "captured", "captured_at": now_iso()}})
         await _post_capture_hooks(order)
         return {"order_id": order_id, "status": "captured", "demo": True}
 
+    # A real order: only ever capture the PayPal order we created for it. The
+    # id in the request body is the client's echo of it and is checked, not
+    # trusted — accepting it verbatim would let a caller point this order at a
+    # cheap PayPal order of their own and have it marked paid.
+    pp_id = order.get("paypal_order_id")
+    if not pp_id:
+        raise HTTPException(status_code=409, detail="This order has no payment attached. Please contact us.")
+    if body.paypal_order_id and body.paypal_order_id != pp_id:
+        logger.error(f"capture id mismatch for order {order_id}: client sent {body.paypal_order_id!r}")
+        raise HTTPException(status_code=400, detail="Payment does not match this order")
+
+    if not PAYPAL_ENABLED:
+        # Credentials went missing after the order was created. Failing loudly
+        # is right: the alternative is recording an unpaid order as captured.
+        logger.error(f"capture requested for order {order_id} but PayPal is not configured")
+        raise HTTPException(status_code=503, detail="Payments are unavailable right now. Please contact us.")
+
     try:
         token = await paypal_token()
-        pp_id = body.paypal_order_id or order.get("paypal_order_id")
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.post(
                 f"{PAYPAL_BASE}/v2/checkout/orders/{pp_id}/capture",
@@ -777,14 +873,53 @@ async def capture_order(order_id: str, body: CaptureBody):
             )
             r.raise_for_status()
             pp = r.json()
-        status = "paid" if pp.get("status") == "COMPLETED" else pp.get("status", "pending")
-        await db.orders.update_one({"id": order_id}, {"$set": {"status": status, "captured_at": now_iso(), "paypal_capture": pp.get("status")}})
-        if status == "paid":
-            await _post_capture_hooks(order)
-        return {"order_id": order_id, "status": status, "demo": False}
     except Exception as e:
         logger.error(f"paypal capture error: {e}")
         raise HTTPException(status_code=502, detail="Could not capture PayPal order")
+
+    status = "paid" if pp.get("status") == "COMPLETED" else pp.get("status", "pending")
+
+    if status == "paid":
+        # Confirm PayPal actually took the amount this order is for. Without
+        # this the recorded price is whatever we asked for, not what was paid.
+        expected = round(float(order.get("amount") or 0), 2)
+        try:
+            captured, captured_currency = _paypal_capture_total(pp)
+        except ValueError as e:
+            logger.error(f"order {order_id}: {e}")
+            captured, captured_currency = 0.0, None
+        if captured != expected or captured_currency != (order.get("currency") or "USD"):
+            logger.error(
+                f"order {order_id} amount mismatch: expected {expected} "
+                f"{order.get('currency')}, captured {captured} {captured_currency}"
+            )
+            await db.orders.update_one(
+                {"id": order_id},
+                {"$set": {
+                    "status": "review",
+                    "captured_at": now_iso(),
+                    "paypal_capture": pp.get("status"),
+                    "captured_amount": captured,
+                    "captured_currency": captured_currency,
+                }},
+            )
+            # Held, not fulfilled: the money may well be in the account, but a
+            # human needs to reconcile it before anything gets printed.
+            raise HTTPException(status_code=409, detail="Payment needs review. We'll email you shortly.")
+
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {"status": status, "captured_at": now_iso(), "paypal_capture": pp.get("status"),
+                      "captured_amount": captured, "captured_currency": captured_currency}},
+        )
+        await _post_capture_hooks(order)
+        return {"order_id": order_id, "status": status, "demo": False}
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": status, "captured_at": now_iso(), "paypal_capture": pp.get("status")}},
+    )
+    return {"order_id": order_id, "status": status, "demo": False}
 
 
 @api_router.get("/orders/{order_id}")
@@ -1028,7 +1163,7 @@ async def admin_update_build_request(req_id: str, patch: BuildRequestAdminPatch,
 
 
 # ----------------------------- First-party events (privacy-light beacon) -----------------------------
-@api_router.post("/events")
+@api_router.post("/events", dependencies=[Depends(rate_limit("events", *RL_EVENTS))])
 async def create_event(payload: EventCreate):
     """Public beacon — no auth, no third parties. Only allow-listed names are
     accepted, and everything stored is truncated hard."""
@@ -1085,7 +1220,7 @@ async def admin_stats(user=Depends(require_user)):
 
 
 # ----------------------------- Contact -----------------------------
-@api_router.post("/contact")
+@api_router.post("/contact", dependencies=[Depends(rate_limit("contact", *RL_CONTACT))])
 async def create_contact(payload: ContactCreate, user=Depends(get_optional_user)):
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Please include a message")

@@ -84,7 +84,12 @@ export default function OrderModal({ open, onClose, design, clientId, config }) 
   };
 
   const captureBackendOrder = async (orderId, paypalOrderId) => {
-    const { data } = await api.post(`/orders/${orderId}/capture`, { paypal_order_id: paypalOrderId });
+    // client_id proves we're the buyer who created this order — the backend
+    // rejects a capture from anyone else.
+    const { data } = await api.post(`/orders/${orderId}/capture`, {
+      paypal_order_id: paypalOrderId,
+      client_id: clientId,
+    });
     return data;
   };
 
