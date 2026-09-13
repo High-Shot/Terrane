@@ -56,16 +56,20 @@ EVENT_NAMES = {"pageview", "studio_opened", "place_searched", "build_request_sub
 # (used when no PayPal keys are set) is only allowed when explicitly enabled.
 ALLOW_DEMO_CHECKOUT = os.environ.get('ALLOW_DEMO_CHECKOUT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 
-# Rate limits, as (max requests, window seconds) per client IP. Sized to be
-# invisible to a real visitor and painful to a script: the analytics beacon is
-# generous because a single page view fires several, while auth and the
-# email-sending endpoints are tight.
-RL_REGISTER = (5, 3600)
-RL_LOGIN_IP = (10, 300)
-RL_LOGIN_EMAIL = (5, 900)   # also per-email, so one IP can't grind one account
-RL_CONTACT = (5, 3600)
-RL_EVENTS = (120, 60)
+# Rate limits, as (max requests, window seconds) per client IP. These are the
+# values HARDENING_TODOS.md specified for the never-wired backend/middleware.py;
+# they are carried over verbatim so the documented decision stands.
+RL_LOGIN_IP = (5, 300)
+RL_REGISTER = (3, 3600)
+RL_CONTACT = (10, 3600)
+RL_EVENTS = (100, 60)
 RL_UPLOAD = (20, 3600)
+
+# Not in that spec: a second, per-email limit on login. The per-IP limit alone
+# does nothing against a botnet spreading a guessing run for one inbox across
+# many addresses. The longer window means it also trips before the per-IP one
+# on a slow grind from a single host.
+RL_LOGIN_EMAIL = (5, 900)
 
 # Email config (generic SMTP so any provider works via env). Leave SMTP_HOST
 # blank to disable email — build requests are still saved regardless.

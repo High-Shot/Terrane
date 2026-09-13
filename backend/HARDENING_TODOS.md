@@ -2,9 +2,24 @@
 
 This document tracks critical security improvements needed before full production launch.
 
-## Payment Flow Verification (CRITICAL — BLOCKING)
+## Payment Flow Verification (CRITICAL — ✅ DONE, PR #10)
 
 ### Issue: `capture_order` doesn't verify PayPal amount
+
+**Status: fixed.** The real hole turned out to be worse than the amount check.
+`capture_order` also trusted `body.paypal_order_id`, so a caller could point a
+$249 order at a $1 PayPal order of their own — no interception needed. It now
+captures only the id stored at create time, sums the `COMPLETED` captures in
+the PayPal response, and parks the order at `review` **without running
+fulfillment** on any amount or currency mismatch. Also fixed alongside it:
+capture is no longer unauthenticated, is idempotent, and no longer marks a real
+order captured when the PayPal credentials go missing.
+
+The sketch below is kept for context; the shipped shape differs in two ways.
+The endpoint uses `get_optional_user` rather than `require_user` (guest
+checkout has no account, so the buyer is proven by `client_id`), and it
+verifies the capture response rather than a separate authorization fetch,
+because orders are created with `intent: CAPTURE` and never authorized first.
 
 **Location:** `backend/server.py` in `capture_order()` endpoint
 
@@ -53,32 +68,42 @@ async def capture_order(order_id: str, payload: CapturePayload, user=Depends(req
 
 ---
 
-## Authentication & Rate Limiting (HIGH)
+## Authentication & Rate Limiting (HIGH — ✅ DONE, PR #10)
 
 ### Issue: No rate limiting on auth endpoints
 
-**Affected endpoints:**
+**Affected endpoints:** all five are now limited.
 - `POST /login` — brute-force password attacks
 - `POST /register` — account enumeration, spam
 - `POST /contact` — spam
 - `POST /events` — data exfiltration
 - `POST /upload` — resource exhaustion
 
-**Fix:** Applied in `backend/middleware.py` (see `rate_limit_middleware` and `LIMITERS`)
+**Fix:** `backend/ratelimit.py`, wired as a FastAPI dependency on each route.
+The limits are the ones this document specified, carried over verbatim
+(`RL_*` in `server.py`), plus a second per-email limit on login that the
+original spec did not have — the per-IP limit alone does nothing against a
+botnet spreading a guessing run for one inbox across many addresses.
 
-**Integration steps:**
-1. Import `rate_limit_middleware` in `server.py`
-2. Call in each route before processing:
-   ```python
-   @api_router.post("/login")
-   async def login(req: Request, payload: LoginRequest):
-       await rate_limit_middleware("login", req)
-       # ... rest of login logic
-   ```
+`backend/middleware.py` was deleted in the same PR. It had never been imported
+by `server.py`, so nothing was enforced, and its `get_client_ip` read the
+**leftmost** `X-Forwarded-For` entry, which is caller-supplied — a spoofed
+header would have sidestepped every limit. The replacement skips exactly
+`TRUSTED_PROXY_COUNT` hops from the right instead.
 
-**Testing:**
-- Unit test: simulate 6 requests in 300s from same IP, verify 429 on 6th
-- Manual test: curl -X POST /login 6 times rapidly, confirm 429
+⚠️ **`TRUSTED_PROXY_COUNT` must be set to 2 if Cloudflare sits in front of
+nginx.** It defaults to 1 (the bare compose stack). Left at 1 behind
+Cloudflare, every visitor is counted as a single Cloudflare IP and real users
+start getting 429s. See `.env.example`.
+
+**Note on scale:** counters are in-process, which is correct for the single
+uvicorn process the compose stack runs (no `--workers`). Moving to multiple
+workers or replicas means each holds its own counters and the effective limit
+multiplies — that needs a shared store (Redis).
+
+**Testing:** covered by `backend/tests/test_rate_limit_endpoints.py` (429 with
+`Retry-After` on each endpoint, per-IP isolation, per-email isolation) and
+`test_security.py` (window logic, `X-Forwarded-For` parsing).
 
 ---
 
@@ -144,14 +169,14 @@ git log -S "mongodb+srv" --name-only
 
 ### Phase 1 (Before First Review)
 - [x] Unit tests for `classify()`, pooled inventory, restock estimates (INTL)
-- [ ] Unit test for PayPal amount verification logic
-- [ ] Rate limiter unit tests
+- [x] Unit test for PayPal amount verification logic — `test_security.py`
+- [x] Rate limiter unit tests — `test_security.py`
 
 ### Phase 2 (Before Production)
-- [ ] Integration test: login with correct/incorrect password + rate limiting
-- [ ] Integration test: PayPal auth → capture flow with amount mismatch
+- [x] Integration test: login with correct/incorrect password + rate limiting — `test_rate_limit_endpoints.py`
+- [x] Integration test: capture flow with amount mismatch — `test_capture_endpoint.py` (stubbed PayPal, fake DB)
 - [ ] Manual: test 429 response in browser
-- [ ] Manual: PayPal sandbox payment end-to-end
+- [ ] Manual: PayPal sandbox payment end-to-end — **do this before the next backend deploy.** Capture now requires `client_id`; an old frontend against the new backend gets a 403 on every capture, so deploy the frontend first.
 
 ### Phase 3 (Continuous)
 - [ ] `pip audit` on CI
@@ -172,5 +197,17 @@ Before `terranemaps.com` goes live:
 
 ---
 
-**Last updated:** 2026-09-11  
+**Last updated:** 2026-09-13  
 **Owner:** Security review
+
+### Still open after PR #10
+- `GET /api/orders/{id}` is unauthenticated and returns the full order document
+  to anyone holding the UUID.
+- `DELETE /api/routes/{id}` had no ownership check at all and would delete any
+  route for any caller. Fixed in PR #10, noted here because it was not on this
+  list and is the same class of hole — worth a sweep of the remaining handlers.
+- CRA / `react-scripts` is unmaintained and propped up by a `resolutions` block
+  patching vulnerable transitive deps. A Vite migration is the real fix.
+- lodash `4.18.1` was flagged as a supply-chain anomaly in the org-wide audit.
+  It is not: `4.18.1` is the official `latest` on npm, published 2026-04-01.
+  No action needed.
