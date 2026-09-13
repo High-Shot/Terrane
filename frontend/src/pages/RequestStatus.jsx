@@ -214,7 +214,10 @@ export default function RequestStatus() {
   const handlePayPalApprove = async (ppData) => {
     try {
       setProcessing(true);
-      await api.post(`/orders/${createdOrderId.current}/capture`, { paypal_order_id: ppData.orderID });
+      await api.post(`/orders/${createdOrderId.current}/capture`, {
+        paypal_order_id: ppData.orderID,
+        client_id: getClientId(),
+      });
       api.post('/events', { name: 'proof_approved', path: `/request/${data.id}`, client_id: getClientId() }).catch(() => {});
       setJustPaid(true);
       toast.success("Approved — we're printing your map");
