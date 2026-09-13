@@ -63,12 +63,41 @@ def test_enforce_raises_429_with_retry_after_header():
     assert int(exc.value.headers["Retry-After"]) >= 1
 
 
-def test_client_ip_skips_exactly_the_trusted_hops(monkeypatch):
-    class _Req:
-        def __init__(self, xff):
-            self.headers = {"x-forwarded-for": xff}
-            self.client = type("C", (), {"host": "10.0.0.1"})()
+class _Req:
+    def __init__(self, xff=None, cf=None):
+        self.headers = {}
+        if xff is not None:
+            self.headers["x-forwarded-for"] = xff
+        if cf is not None:
+            self.headers["cf-connecting-ip"] = cf
+        self.client = type("C", (), {"host": "10.0.0.1"})()
 
+
+def test_cf_connecting_ip_wins_and_needs_no_proxy_counting(monkeypatch):
+    """The deployed path: Cloudflare overwrites this header, so no config."""
+    monkeypatch.setattr(ratelimit, "TRUST_CF_CONNECTING_IP", True)
+    # Whatever X-Forwarded-For says, and whatever the hop count is set to.
+    monkeypatch.setattr(ratelimit, "TRUSTED_PROXY_COUNT", 1)
+    assert ratelimit.client_ip(_Req(xff="1.2.3.4, 5.6.7.8", cf="203.0.113.7")) == "203.0.113.7"
+    monkeypatch.setattr(ratelimit, "TRUSTED_PROXY_COUNT", 9)
+    assert ratelimit.client_ip(_Req(xff="1.2.3.4, 5.6.7.8", cf="203.0.113.7")) == "203.0.113.7"
+
+
+def test_cf_header_is_ignored_when_not_behind_cloudflare(monkeypatch):
+    """Off, a forged CF-Connecting-IP must not buy a fresh quota per request."""
+    monkeypatch.setattr(ratelimit, "TRUST_CF_CONNECTING_IP", False)
+    monkeypatch.setattr(ratelimit, "TRUSTED_PROXY_COUNT", 1)
+    assert ratelimit.client_ip(_Req(xff="203.0.113.9", cf="1.1.1.1")) == "203.0.113.9"
+
+
+def test_falls_back_to_xff_when_cf_header_is_absent(monkeypatch):
+    monkeypatch.setattr(ratelimit, "TRUST_CF_CONNECTING_IP", True)
+    monkeypatch.setattr(ratelimit, "TRUSTED_PROXY_COUNT", 1)
+    assert ratelimit.client_ip(_Req(xff="203.0.113.9")) == "203.0.113.9"
+
+
+def test_client_ip_skips_exactly_the_trusted_hops(monkeypatch):
+    monkeypatch.setattr(ratelimit, "TRUST_CF_CONNECTING_IP", False)
     # One trusted proxy (nginx only): the single entry is the real client.
     monkeypatch.setattr(ratelimit, "TRUSTED_PROXY_COUNT", 1)
     assert ratelimit.client_ip(_Req("203.0.113.9")) == "203.0.113.9"
@@ -80,10 +109,6 @@ def test_client_ip_skips_exactly_the_trusted_hops(monkeypatch):
 
 
 def test_client_ip_falls_back_to_the_socket_peer():
-    class _Req:
-        headers = {}
-        client = type("C", (), {"host": "10.0.0.1"})()
-
     assert ratelimit.client_ip(_Req()) == "10.0.0.1"
 
 

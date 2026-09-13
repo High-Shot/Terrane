@@ -18,10 +18,26 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
-# Number of trusted proxies in front of the app, used to pick the real client
-# out of X-Forwarded-For. The bare docker-compose stack is client -> nginx, so
-# the default is 1. Put Cloudflare in front and it becomes client -> CF ->
-# nginx, so set TRUSTED_PROXY_COUNT=2 or every visitor is counted as Cloudflare.
+# Cloudflare sets CF-Connecting-IP to the true client address and strips any
+# copy the caller sent, so behind Cloudflare it needs no counting and no
+# configuration. Every deployment path in DEPLOY.md / LAPTOP-SETUP.md puts
+# Cloudflare in front (the SameSite=None auth cookies require its HTTPS), so
+# this is on by default and the X-Forwarded-For arithmetic below is the
+# fallback rather than the main path.
+#
+# Turn it OFF for any origin reachable without going through Cloudflare —
+# there, nothing strips the header and a caller can forge it to get a fresh
+# quota per request.
+TRUST_CF_CONNECTING_IP = os.environ.get("TRUST_CF_CONNECTING_IP", "true").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
+# Fallback when CF-Connecting-IP is absent: how many trusted proxies sit in
+# front, used to pick the real client out of X-Forwarded-For. The bare
+# docker-compose stack is client -> nginx, so 1.
 TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "1").strip() or "1")
 
 # Escape hatch for load tests and local debugging. Never set this in production.
@@ -36,13 +52,20 @@ _SWEEP_INTERVAL_S = 300.0
 
 
 def client_ip(request: Request) -> str:
-    """Best-effort client IP, honouring exactly TRUSTED_PROXY_COUNT proxy hops.
+    """Best-effort client IP.
 
-    X-Forwarded-For grows left-to-right as it crosses proxies, so with N trusted
-    hops the client is the entry N positions from the right. Anything further
-    left was supplied by the caller and must not be trusted — otherwise a
-    spoofed header sidesteps the limiter entirely.
+    Prefers CF-Connecting-IP, which Cloudflare overwrites on every request, so
+    the deployed stack needs no proxy counting at all. Falls back to counting
+    X-Forwarded-For hops: it grows left-to-right as it crosses proxies, so with
+    N trusted hops the client is the entry N positions from the right. Anything
+    further left was supplied by the caller and must not be trusted — otherwise
+    a spoofed header sidesteps the limiter entirely.
     """
+    if TRUST_CF_CONNECTING_IP:
+        cf_ip = request.headers.get("cf-connecting-ip", "").strip()
+        if cf_ip:
+            return cf_ip
+
     forwarded = request.headers.get("x-forwarded-for", "")
     parts = [p.strip() for p in forwarded.split(",") if p.strip()]
     if parts:

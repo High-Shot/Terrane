@@ -91,10 +91,16 @@ by `server.py`, so nothing was enforced, and its `get_client_ip` read the
 header would have sidestepped every limit. The replacement skips exactly
 `TRUSTED_PROXY_COUNT` hops from the right instead.
 
-⚠️ **`TRUSTED_PROXY_COUNT` must be set to 2 if Cloudflare sits in front of
-nginx.** It defaults to 1 (the bare compose stack). Left at 1 behind
-Cloudflare, every visitor is counted as a single Cloudflare IP and real users
-start getting 429s. See `.env.example`.
+**No configuration needed for a normal deploy.** The client IP comes from
+Cloudflare's `CF-Connecting-IP`, which Cloudflare overwrites on every request,
+so there is no proxy counting to get wrong. `TRUSTED_PROXY_COUNT` is only the
+fallback for when that header is absent.
+
+The one case that needs attention: if the origin is reachable *without* going
+through Cloudflare, set `TRUST_CF_CONNECTING_IP=false`. Nothing strips the
+header on a direct path, so a caller could forge it and get a fresh quota on
+every request. Keeping the origin unreachable except via Cloudflare (firewall
+to Cloudflare's ranges, or a Tunnel as in LAPTOP-SETUP.md) is the better fix.
 
 **Note on scale:** counters are in-process, which is correct for the single
 uvicorn process the compose stack runs (no `--workers`). Moving to multiple
